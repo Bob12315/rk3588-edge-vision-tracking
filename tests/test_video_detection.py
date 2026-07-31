@@ -44,6 +44,7 @@ class VideoDetectionUtilityTests(unittest.TestCase):
         record = observation_to_mapping(observation, width=1000, height=500)
         self.assertEqual(record["box_xyxy_pixels"], [100, 100, 500, 400])
         self.assertEqual(record["center_normalized"], [0.3, 0.5])
+        self.assertIsNone(record["color_score"])
 
 
 if __name__ == "__main__":

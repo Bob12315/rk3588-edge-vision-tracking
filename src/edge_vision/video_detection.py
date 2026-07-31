@@ -78,6 +78,7 @@ def observation_to_mapping(observation: TargetObservation, width: int, height: i
         "class_id": observation.class_id,
         "label": observation.label,
         "confidence": observation.detector_confidence,
+        "color_score": observation.color_confidence,
         "box_xyxy_normalized": [box.x1, box.y1, box.x2, box.y2],
         "box_xyxy_pixels": [
             round(box.x1 * width),
@@ -98,6 +99,8 @@ def _draw_observations(frame: Any, observations: Sequence[TargetObservation], cv
         y2 = round(observation.box.y2 * height)
         cv2.rectangle(frame, (x1, y1), (x2, y2), (40, 220, 40), 2)
         label = f"{observation.label} {observation.detector_confidence:.2f}"
+        if observation.color_confidence is not None:
+            label += f" white={observation.color_confidence:.2f}"
         text_y = max(20, y1 - 6)
         cv2.putText(
             frame,
@@ -134,6 +137,7 @@ def run_video_detection(
     confidence: float,
     image_size: int,
     device: str,
+    postprocess: Mapping[str, Any] | None = None,
     max_frames: int | None = None,
 ) -> dict:
     try:
@@ -248,6 +252,7 @@ def run_video_detection(
             "image_size": image_size,
             "warmup_ms": warmup_ms,
         },
+        "postprocess": dict(postprocess or {}),
         **stats.to_mapping(wall_time_s),
         "outputs": {
             "annotated_video": str(output_video),
@@ -275,6 +280,11 @@ def main() -> None:
     parser.add_argument("--confidence", type=float)
     parser.add_argument("--prompts", nargs="+", default=["person"])
     parser.add_argument("--class-ids", nargs="+", type=int, default=[0])
+    parser.add_argument("--white-clothing", action="store_true")
+    parser.add_argument("--white-ratio-threshold", type=float, default=0.20)
+    parser.add_argument("--white-saturation-max", type=int, default=60)
+    parser.add_argument("--white-value-min", type=int, default=145)
+    parser.add_argument("--minimum-person-height-ratio", type=float, default=0.10)
     parser.add_argument("--image-size", type=int, default=640)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--max-frames", type=int)
@@ -310,6 +320,33 @@ def main() -> None:
         class_ids = detector.class_ids
         class_names = detector.class_names
 
+    postprocess = None
+    if args.white_clothing:
+        from .filters.white_clothing import WhiteClothingConfig, WhiteClothingFilter
+
+        white_config = WhiteClothingConfig(
+            saturation_max=args.white_saturation_max,
+            value_min=args.white_value_min,
+            ratio_threshold=args.white_ratio_threshold,
+            minimum_box_height_ratio=args.minimum_person_height_ratio,
+        )
+        detector = WhiteClothingFilter(detector, white_config)
+        class_ids = detector.class_ids
+        class_names = detector.class_names
+        postprocess = {
+            "name": "white-clothing-torso-filter",
+            "saturation_max": white_config.saturation_max,
+            "value_min": white_config.value_min,
+            "ratio_threshold": white_config.ratio_threshold,
+            "minimum_box_height_ratio": white_config.minimum_box_height_ratio,
+            "roi_xy_fractions": [
+                white_config.roi_x_start,
+                white_config.roi_y_start,
+                white_config.roi_x_end,
+                white_config.roi_y_end,
+            ],
+        }
+
     summary = run_video_detection(
         args.source,
         args.output_dir,
@@ -321,6 +358,7 @@ def main() -> None:
         confidence=confidence,
         image_size=args.image_size,
         device=args.device,
+        postprocess=postprocess,
         max_frames=args.max_frames,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))

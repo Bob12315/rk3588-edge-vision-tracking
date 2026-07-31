@@ -77,6 +77,14 @@ PYTHONPATH=src .venv/bin/python -m edge_vision.video_detection input.mp4 \
 make detect-person-yolo VIDEO=/absolute/path/to/input.mp4
 ```
 
+识别白衣人物使用“YOLO-World 找人 + 上半身白色验证”的两级流程：
+
+```bash
+make detect-white-person VIDEO=/absolute/path/to/input.mp4
+```
+
+直接把 `person wearing white clothes` 作为单一开放词汇提示，在当前视频中会误框多名红衣人物，因此不作为最终颜色判定。两级流程和本次结果见 [docs/WHITE_CLOTHING_DETECTION.md](docs/WHITE_CLOTHING_DETECTION.md)。
+
 当前测试视频的实测结果见 [YOLO-World 基线](docs/BASELINE_YOLO_WORLD_PERSON.md)和[普通 YOLO11n 对照](docs/BASELINE_PERSON.md)。
 
 在 RK3588 板端执行基础盘点：
