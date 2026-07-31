@@ -1,6 +1,10 @@
 import unittest
 
-import numpy as np
+try:
+    import cv2  # noqa: F401
+    import numpy as np
+except ImportError:
+    np = None
 
 from edge_vision.contracts import BoundingBox, TargetObservation
 from edge_vision.filters.clothing_color import (
@@ -34,6 +38,7 @@ class ClothingColorTests(unittest.TestCase):
         self.assertIsNone(clothing_color_from_text("green car"))
         self.assertIsNone(clothing_color_from_text("red laptop"))
 
+    @unittest.skipIf(np is None, "optional OpenCV/NumPy dependencies are not installed")
     def test_classifies_common_solid_colors(self) -> None:
         samples = {
             "white": (240, 240, 240),
@@ -51,6 +56,7 @@ class ClothingColorTests(unittest.TestCase):
                 self.assertEqual(estimate.label, expected)
                 self.assertGreater(estimate.confidence, 0.95)
 
+    @unittest.skipIf(np is None, "optional OpenCV/NumPy dependencies are not installed")
     def test_temporal_history_delays_and_stabilizes_color_match(self) -> None:
         observation = TargetObservation(
             label="person",
