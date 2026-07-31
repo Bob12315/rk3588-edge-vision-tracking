@@ -1,0 +1,16 @@
+{
+  "state_machine": {
+    "detection_threshold": 0.65,
+    "tracker_threshold": 0.35,
+    "lock_confirmations": 2,
+    "lock_miss_limit": 2,
+    "track_miss_limit": 3,
+    "lost_search_limit": 10,
+    "require_relation_verification": true
+  },
+  "safety": {
+    "battery_rtl_percent": 20.0,
+    "battery_land_percent": 10.0,
+    "minimum_obstacle_distance_m": 3.0
+  }
+}
