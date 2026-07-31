@@ -116,7 +116,9 @@ class OllamaVlm:
             "category, with at most eight categories. For yolo_world_prompts, use short English "
             "object nouns suitable for open-vocabulary detection. If the target is a person with "
             "any clothing attribute, the prompt must be exactly 'person'; put colors, clothing "
-            "and relations in required_attributes or relation. "
+            "and relations in required_attributes or relation. Normalize a clothing color to "
+            "one of white, black, gray, red, orange, yellow, green, cyan, blue, purple, pink, "
+            "or brown. "
             f"The exact JSON schema is: {schema_text}"
         )
         payload = {

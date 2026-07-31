@@ -137,6 +137,8 @@ make web-ui
 
 网页默认使用 384 实时档和折中 ByteTrack 参数，当前视频从约 9.7 FPS 提升到约 20.5 FPS；512/640 档用于更小或更难的目标。参数与轨迹碎片对照见[跟踪优化记录](docs/TRACKING_OPTIMIZATION.md)。
 
+衣服颜色任务会把描述拆成 `person` 检测和独立颜色复核，支持 12 个标准颜色，并按 ByteTrack ID 做三帧时序稳定；当前视频加入颜色复核后约为 19 FPS。实现、实测与限制见[衣服颜色识别与跟踪](docs/CLOTHING_COLOR_TRACKING.md)。
+
 当前测试视频的实测结果见 [YOLO-World 基线](docs/BASELINE_YOLO_WORLD_PERSON.md)和[普通 YOLO11n 对照](docs/BASELINE_PERSON.md)。
 
 在 RK3588 板端执行基础盘点：

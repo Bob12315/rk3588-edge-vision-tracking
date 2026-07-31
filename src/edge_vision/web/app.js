@@ -165,7 +165,9 @@ function renderPrompts(tracking) {
     return;
   }
   for (const prompt of tracking.prompts) elements.activePrompts.append(makeChip(prompt));
-  if (tracking.attribute_filter) elements.activePrompts.append(makeChip("+ 白衣 HSV 复核"));
+  if (tracking.target_color) {
+    elements.activePrompts.append(makeChip(`+ ${tracking.target_color} clothing verification`));
+  }
 }
 
 function renderDetections(tracking) {
@@ -189,7 +191,11 @@ function renderDetections(tracking) {
     name.textContent = detection.label;
     const score = document.createElement("span");
     score.className = "detection-score";
-    score.textContent = Number(detection.confidence || 0).toFixed(2);
+    const detectorScore = Number(detection.confidence || 0).toFixed(2);
+    const colorScore = detection.color_label
+      ? ` · ${detection.color_label} ${Number(detection.color_score || 0).toFixed(2)}`
+      : "";
+    score.textContent = `${detectorScore}${colorScore}`;
     row.append(id, name, score);
     elements.detectionsList.append(row);
   }

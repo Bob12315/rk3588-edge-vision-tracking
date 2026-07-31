@@ -131,6 +131,7 @@ def observation_to_mapping(observation: TargetObservation, width: int, height: i
         "track_id": observation.track_id,
         "confidence": observation.detector_confidence,
         "tracker_confidence": observation.tracker_confidence,
+        "color_label": observation.color_label,
         "color_score": observation.color_confidence,
         "box_xyxy_normalized": [box.x1, box.y1, box.x2, box.y2],
         "box_xyxy_pixels": [
@@ -155,7 +156,8 @@ def _draw_observations(frame: Any, observations: Sequence[TargetObservation], cv
         if observation.track_id is not None:
             label = f"ID {observation.track_id} | {label}"
         if observation.color_confidence is not None:
-            label += f" white={observation.color_confidence:.2f}"
+            color_label = observation.color_label or "color"
+            label += f" {color_label}={observation.color_confidence:.2f}"
         text_y = max(20, y1 - 6)
         cv2.putText(
             frame,
@@ -374,6 +376,26 @@ def main() -> None:
         ),
     )
     parser.add_argument("--white-clothing", action="store_true")
+    parser.add_argument(
+        "--clothing-color",
+        choices=(
+            "white",
+            "black",
+            "gray",
+            "red",
+            "orange",
+            "yellow",
+            "green",
+            "cyan",
+            "blue",
+            "purple",
+            "pink",
+            "brown",
+        ),
+        help="verify a clothing color inside tracked person boxes",
+    )
+    parser.add_argument("--color-score-threshold", type=float)
+    parser.add_argument("--color-dominance-ratio", type=float, default=0.85)
     parser.add_argument("--white-ratio-threshold", type=float, default=0.20)
     parser.add_argument("--white-saturation-max", type=int, default=60)
     parser.add_argument("--white-value-min", type=int, default=145)
@@ -458,29 +480,40 @@ def main() -> None:
         class_names = detector.class_names
 
     postprocess = None
-    if args.white_clothing:
-        from .filters.white_clothing import WhiteClothingConfig, WhiteClothingFilter
+    clothing_color = args.clothing_color or ("white" if args.white_clothing else None)
+    if clothing_color is not None:
+        from .filters.clothing_color import ClothingColorConfig, ClothingColorFilter
 
-        white_config = WhiteClothingConfig(
-            saturation_max=args.white_saturation_max,
-            value_min=args.white_value_min,
-            ratio_threshold=args.white_ratio_threshold,
+        color_config = ClothingColorConfig(
+            target_color=clothing_color,
+            score_threshold=(
+                args.color_score_threshold
+                if args.color_score_threshold is not None
+                else args.white_ratio_threshold
+            ),
             minimum_box_height_ratio=args.minimum_person_height_ratio,
+            white_saturation_max=args.white_saturation_max,
+            white_value_min=args.white_value_min,
+            minimum_dominance_ratio=args.color_dominance_ratio,
         )
-        detector = WhiteClothingFilter(detector, white_config)
+        detector = ClothingColorFilter(detector, color_config)
         class_ids = detector.class_ids
         class_names = detector.class_names
         postprocess = {
-            "name": "white-clothing-torso-filter",
-            "saturation_max": white_config.saturation_max,
-            "value_min": white_config.value_min,
-            "ratio_threshold": white_config.ratio_threshold,
-            "minimum_box_height_ratio": white_config.minimum_box_height_ratio,
+            "name": "tracked-clothing-color-filter",
+            "target_color": color_config.target_color,
+            "score_threshold": color_config.score_threshold,
+            "temporal_alpha": color_config.temporal_alpha,
+            "temporal_min_samples": color_config.temporal_min_samples,
+            "minimum_dominance_ratio": color_config.minimum_dominance_ratio,
+            "white_saturation_max": color_config.white_saturation_max,
+            "white_value_min": color_config.white_value_min,
+            "minimum_box_height_ratio": color_config.minimum_box_height_ratio,
             "roi_xy_fractions": [
-                white_config.roi_x_start,
-                white_config.roi_y_start,
-                white_config.roi_x_end,
-                white_config.roi_y_end,
+                color_config.roi_x_start,
+                color_config.roi_y_start,
+                color_config.roi_x_end,
+                color_config.roi_y_end,
             ],
         }
 

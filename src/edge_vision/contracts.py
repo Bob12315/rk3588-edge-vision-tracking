@@ -57,6 +57,7 @@ class TargetObservation:
     distance_m: Optional[float] = None
     track_id: Optional[int] = None
     class_id: Optional[int] = None
+    color_label: Optional[str] = None
 
     def __post_init__(self) -> None:
         confidence_values = (

@@ -48,7 +48,7 @@ GPS / IMU / battery / range ────────> telemetry ─────�
 - `label`、`box`、`detector_confidence`
 - 可选 `tracker_confidence`、`track_id`
 - `relation_verified`，用于“拿蓝色箱子的人”等关系目标
-- 可选 `color_confidence`、`distance_m`
+- 可选 `color_label`、`color_confidence`、`distance_m`
 - `frame_id`、单调时间戳
 
 统一契约能让电脑端 ONNX/模拟适配器与板端 RKNN 适配器互换，而不改状态机。

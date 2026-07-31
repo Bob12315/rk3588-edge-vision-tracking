@@ -57,6 +57,7 @@ class VideoDetectionUtilityTests(unittest.TestCase):
         self.assertEqual(record["box_xyxy_pixels"], [100, 100, 500, 400])
         self.assertEqual(record["center_normalized"], [0.3, 0.5])
         self.assertEqual(record["track_id"], 12)
+        self.assertIsNone(record["color_label"])
         self.assertIsNone(record["color_score"])
 
 

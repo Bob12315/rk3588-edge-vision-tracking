@@ -1,11 +1,17 @@
-"""Filter person detections using a white-pixel ratio in the torso region."""
+"""Backward-compatible white-clothing wrapper around the generic color filter."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from typing import Any, Sequence
+from dataclasses import dataclass
+from typing import Any
 
 from edge_vision.contracts import TargetObservation
+
+from .clothing_color import (
+    ClothingColorConfig,
+    ClothingColorFilter,
+    clothing_roi_bounds,
+)
 
 
 @dataclass(frozen=True)
@@ -38,74 +44,40 @@ def torso_roi_bounds(
     height: int,
     config: WhiteClothingConfig,
 ) -> tuple[int, int, int, int]:
-    box = observation.box
-    x1 = round(box.x1 * width)
-    y1 = round(box.y1 * height)
-    x2 = round(box.x2 * width)
-    y2 = round(box.y2 * height)
-    box_width = x2 - x1
-    box_height = y2 - y1
-    return (
-        max(0, x1 + round(config.roi_x_start * box_width)),
-        max(0, y1 + round(config.roi_y_start * box_height)),
-        min(width, x1 + round(config.roi_x_end * box_width)),
-        min(height, y1 + round(config.roi_y_end * box_height)),
+    return clothing_roi_bounds(
+        observation,
+        width,
+        height,
+        ClothingColorConfig(
+            target_color="white",
+            score_threshold=config.ratio_threshold,
+            minimum_box_height_ratio=config.minimum_box_height_ratio,
+            roi_x_start=config.roi_x_start,
+            roi_x_end=config.roi_x_end,
+            roi_y_start=config.roi_y_start,
+            roi_y_end=config.roi_y_end,
+            white_saturation_max=config.saturation_max,
+            white_value_min=config.value_min,
+        ),
     )
 
 
-class WhiteClothingFilter:
-    """Wrap a detector and retain people whose torso region is predominantly white."""
-
-    class_names = ("person wearing white clothes",)
+class WhiteClothingFilter(ClothingColorFilter):
+    """Compatibility name for the temporally stabilized white-clothing filter."""
 
     def __init__(self, detector: Any, config: WhiteClothingConfig | None = None) -> None:
-        self.detector = detector
-        self.config = config or WhiteClothingConfig()
-        self.class_ids = tuple(getattr(detector, "class_ids", (0,)))
-
-    def detect(
-        self, frame: Any, prompts: Sequence[str] = ()
-    ) -> Sequence[TargetObservation]:
-        try:
-            import cv2
-        except ImportError as exc:
-            raise RuntimeError("OpenCV is required for white-clothing verification") from exc
-
-        height, width = frame.shape[:2]
-        verified = []
-        for observation in self.detector.detect(frame, prompts):
-            box_height_ratio = observation.box.y2 - observation.box.y1
-            if box_height_ratio < self.config.minimum_box_height_ratio:
-                continue
-            x1, y1, x2, y2 = torso_roi_bounds(
-                observation, width, height, self.config
-            )
-            roi = frame[y1:y2, x1:x2]
-            if roi.size == 0:
-                continue
-            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-            white_mask = (
-                (hsv[:, :, 1] <= self.config.saturation_max)
-                & (hsv[:, :, 2] >= self.config.value_min)
-            )
-            white_ratio = float(white_mask.mean())
-            if white_ratio < self.config.ratio_threshold:
-                continue
-            verified.append(
-                replace(
-                    observation,
-                    label=self.class_names[0],
-                    color_confidence=white_ratio,
-                    relation_verified=True,
-                )
-            )
-        return verified
-
-    def warmup(self, frame: Any) -> None:
-        """Delegate model warmup without accidentally advancing tracker state."""
-
-        warmup = getattr(self.detector, "warmup", None)
-        if callable(warmup):
-            warmup(frame)
-        else:
-            self.detector.detect(frame)
+        white = config or WhiteClothingConfig()
+        super().__init__(
+            detector,
+            ClothingColorConfig(
+                target_color="white",
+                score_threshold=white.ratio_threshold,
+                minimum_box_height_ratio=white.minimum_box_height_ratio,
+                roi_x_start=white.roi_x_start,
+                roi_x_end=white.roi_x_end,
+                roi_y_start=white.roi_y_start,
+                roi_y_end=white.roi_y_end,
+                white_saturation_max=white.saturation_max,
+                white_value_min=white.value_min,
+            ),
+        )

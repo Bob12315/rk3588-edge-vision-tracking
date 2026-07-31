@@ -199,7 +199,8 @@ def _draw_runtime_overlay(
         track = "?" if observation.track_id is None else str(observation.track_id)
         label = f"ID {track} {observation.detector_confidence:.2f}"
         if observation.color_confidence is not None:
-            label += f" white={observation.color_confidence:.2f}"
+            color_label = observation.color_label or "color"
+            label += f" {color_label}={observation.color_confidence:.2f}"
         cv2.putText(
             frame,
             label,

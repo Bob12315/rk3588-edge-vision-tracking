@@ -18,6 +18,7 @@ from typing import Any, BinaryIO, Callable, Mapping, Sequence
 from urllib.parse import urlparse
 
 from .contracts import TargetObservation, VisionLanguageModel, VlmSceneAnalysis
+from .filters.clothing_color import clothing_color_from_text, normalize_color_name
 from .video_detection import observation_to_mapping
 from .vlm import normalize_grounding_prompts, scene_analysis_to_mapping
 
@@ -62,18 +63,37 @@ def safe_upload_filename(filename: str) -> str:
     return f"{stem}-{uuid.uuid4().hex[:10]}{suffix}"
 
 
-def requires_white_clothing_filter(analysis: VlmSceneAnalysis | None) -> bool:
-    """Enable the implemented deterministic verifier for white-clothing tasks."""
+def requested_clothing_color(
+    analysis: VlmSceneAnalysis | None,
+    query: str = "",
+) -> str | None:
+    """Extract a requested garment color without treating every colored object as clothing."""
 
-    if analysis is None:
-        return False
-    attributes = " ".join(analysis.grounding.required_attributes).casefold()
-    white = "white" in attributes or "白" in attributes
-    clothing = any(
-        token in attributes
-        for token in ("cloth", "shirt", "uniform", "top", "衣", "服", "上衣")
-    )
-    return white and clothing
+    candidates = [query]
+    person_prompt = False
+    if analysis is not None:
+        candidates.extend(analysis.grounding.required_attributes)
+        candidates.append(analysis.grounding.user_query)
+        person_prompt = any(
+            prompt.casefold() in {"person", "people", "man", "woman"}
+            for prompt in analysis.grounding.yolo_world_prompts
+        )
+    for candidate in candidates:
+        color = clothing_color_from_text(candidate)
+        if color is not None:
+            return color
+        if person_prompt:
+            normalized = normalize_color_name(candidate)
+            words = candidate.casefold().replace("color", "").strip(" -_")
+            if normalized is not None and words in {normalized, "grey"}:
+                return normalized
+    return None
+
+
+def requires_white_clothing_filter(analysis: VlmSceneAnalysis | None) -> bool:
+    """Compatibility helper retained for callers of the first white-only version."""
+
+    return requested_clothing_color(analysis) == "white"
 
 
 def performance_image_size(mode: str) -> int:
@@ -82,6 +102,16 @@ def performance_image_size(mode: str) -> int:
     except KeyError as exc:
         choices = ", ".join(PERFORMANCE_IMAGE_SIZES)
         raise ValueError(f"未知性能模式，可选：{choices}") from exc
+
+
+def grounding_detection_prompts(
+    prompts: Sequence[str], clothing_color: str | None
+) -> tuple[str, ...]:
+    """Keep clothing attributes out of YOLO-World's object-class vocabulary."""
+
+    if clothing_color is not None:
+        return ("person",)
+    return tuple(prompts)
 
 
 def timestamp_rate(timestamps: Sequence[float]) -> float:
@@ -98,9 +128,9 @@ class WebUiConfig:
     image_size: int = 384
     device: str = "cpu"
     tracker_config: str = "configs/bytetrack_balanced.yaml"
-    white_ratio_threshold: float = 0.20
-    white_saturation_max: int = 60
-    white_value_min: int = 145
+    clothing_color_threshold: float = 0.20
+    color_minimum_dominance_ratio: float = 0.85
+    color_temporal_min_samples: int = 3
     minimum_person_height_ratio: float = 0.10
     jpeg_quality: int = 82
 
@@ -109,11 +139,19 @@ class WebUiConfig:
             raise ValueError("confidence must be in [0, 1]")
         if self.image_size <= 0:
             raise ValueError("image_size must be positive")
+        if not 0.0 <= self.clothing_color_threshold <= 1.0:
+            raise ValueError("clothing_color_threshold must be in [0, 1]")
+        if not 0.0 <= self.color_minimum_dominance_ratio <= 1.0:
+            raise ValueError("color_minimum_dominance_ratio must be in [0, 1]")
+        if self.color_temporal_min_samples < 1:
+            raise ValueError("color_temporal_min_samples must be positive")
+        if not 0.0 <= self.minimum_person_height_ratio <= 1.0:
+            raise ValueError("minimum_person_height_ratio must be in [0, 1]")
         if not 1 <= self.jpeg_quality <= 100:
             raise ValueError("jpeg_quality must be in [1, 100]")
 
 
-DetectorFactory = Callable[[Sequence[str], bool, int], tuple[Any, Any]]
+DetectorFactory = Callable[[Sequence[str], str | None, int], tuple[Any, Any]]
 
 
 class VisionWebSession:
@@ -159,6 +197,7 @@ class VisionWebSession:
         self._target_query = ""
         self._prompts: tuple[str, ...] = ()
         self._attribute_filter: str | None = None
+        self._target_color: str | None = None
         self._performance_mode = "realtime"
         self._active_image_size = config.image_size
         self._scene_analysis: Mapping[str, Any] | None = None
@@ -239,6 +278,7 @@ class VisionWebSession:
             self._target_query = ""
             self._prompts = ()
             self._attribute_filter = None
+            self._target_color = None
             self._performance_mode = "realtime"
             self._active_image_size = self.config.image_size
             self._grounding_analysis = None
@@ -299,7 +339,9 @@ class VisionWebSession:
                         f"{query}. Inspect the image, describe the scene briefly, and create a "
                         "grounding plan specifically for that target. Use short English object "
                         "nouns for YOLO-World prompts and put colors, clothing, and relations in "
-                        "required_attributes or relation."
+                        "required_attributes or relation. Express clothing colors using one of "
+                        "white, black, gray, red, orange, yellow, green, cyan, blue, purple, "
+                        "pink, or brown."
                     )
                     with self._lock:
                         self._vlm_busy = True
@@ -315,9 +357,10 @@ class VisionWebSession:
                 else:
                     prompts = split_direct_prompts(query)
 
-                white_filter = requires_white_clothing_filter(grounding_analysis)
+                clothing_color = requested_clothing_color(grounding_analysis, query)
+                prompts = grounding_detection_prompts(prompts, clothing_color)
                 detector, base_detector = self._detector_factory(
-                    prompts, white_filter, image_size
+                    prompts, clothing_color, image_size
                 )
                 warmup = getattr(detector, "warmup", None)
                 if callable(warmup):
@@ -339,8 +382,11 @@ class VisionWebSession:
                     self._target_query = query
                     self._prompts = tuple(prompts)
                     self._attribute_filter = (
-                        "white-clothing-torso-hsv" if white_filter else None
+                        f"clothing-color:{clothing_color}"
+                        if clothing_color is not None
+                        else None
                     )
+                    self._target_color = clothing_color
                     self._performance_mode = performance_mode
                     self._active_image_size = image_size
                     self._grounding_analysis = (
@@ -416,6 +462,7 @@ class VisionWebSession:
                     "target_query": self._target_query,
                     "prompts": list(self._prompts),
                     "attribute_filter": self._attribute_filter,
+                    "target_color": self._target_color,
                     "performance_mode": self._performance_mode,
                     "image_size": self._active_image_size,
                     "frame_id": self._frame_id,
@@ -536,7 +583,7 @@ class VisionWebSession:
             self._error = message
 
     def _build_detector(
-        self, prompts: Sequence[str], white_filter: bool, image_size: int
+        self, prompts: Sequence[str], clothing_color: str | None, image_size: int
     ) -> tuple[Any, Any]:
         from .adapters.ultralytics_yolo_world import UltralyticsYoloWorldDetector
 
@@ -548,18 +595,19 @@ class VisionWebSession:
             device=self.config.device,
             tracker_config=self.config.tracker_config,
         )
-        if not white_filter:
+        if clothing_color is None:
             return base_detector, base_detector
 
-        from .filters.white_clothing import WhiteClothingConfig, WhiteClothingFilter
+        from .filters.clothing_color import ClothingColorConfig, ClothingColorFilter
 
-        detector = WhiteClothingFilter(
+        detector = ClothingColorFilter(
             base_detector,
-            WhiteClothingConfig(
-                saturation_max=self.config.white_saturation_max,
-                value_min=self.config.white_value_min,
-                ratio_threshold=self.config.white_ratio_threshold,
+            ClothingColorConfig(
+                target_color=clothing_color,
+                score_threshold=self.config.clothing_color_threshold,
+                minimum_dominance_ratio=self.config.color_minimum_dominance_ratio,
                 minimum_box_height_ratio=self.config.minimum_person_height_ratio,
+                temporal_min_samples=self.config.color_temporal_min_samples,
             ),
         )
         return detector, base_detector
@@ -589,7 +637,8 @@ def draw_tracking_frame(
         identity = "?" if track_id is None else str(track_id)
         label = f"ID {identity} | {observation.label} {observation.detector_confidence:.2f}"
         if observation.color_confidence is not None:
-            label += f" | white {observation.color_confidence:.2f}"
+            color_label = observation.color_label or "color"
+            label += f" | {color_label} {observation.color_confidence:.2f}"
         cv2.putText(
             frame,
             label,

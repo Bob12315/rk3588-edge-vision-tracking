@@ -6,7 +6,9 @@ from edge_vision.contracts import GroundingTask, SceneObject, VlmSceneAnalysis
 from edge_vision.web_ui import (
     WebUiConfig,
     _copy_limited,
+    grounding_detection_prompts,
     performance_image_size,
+    requested_clothing_color,
     requires_white_clothing_filter,
     safe_upload_filename,
     split_direct_prompts,
@@ -59,6 +61,26 @@ class WebUiHelperTests(unittest.TestCase):
             requires_white_clothing_filter(analysis_with_attributes("red car"))
         )
 
+    def test_general_clothing_color_is_extracted_without_colored_object_false_positive(self) -> None:
+        self.assertEqual(
+            requested_clothing_color(analysis_with_attributes("blue shirt")),
+            "blue",
+        )
+        self.assertIsNone(
+            requested_clothing_color(analysis_with_attributes("red car"))
+        )
+        self.assertEqual(requested_clothing_color(None, "穿黑色衣服的人"), "black")
+
+    def test_clothing_attributes_are_not_sent_as_yolo_world_object_classes(self) -> None:
+        self.assertEqual(
+            grounding_detection_prompts(("person", "white", "pants"), "white"),
+            ("person",),
+        )
+        self.assertEqual(
+            grounding_detection_prompts(("red car",), None),
+            ("red car",),
+        )
+
     def test_limited_copy_rejects_oversized_payload(self) -> None:
         destination = io.BytesIO()
         with self.assertRaises(ValueError):
@@ -69,6 +91,10 @@ class WebUiHelperTests(unittest.TestCase):
             WebUiConfig(confidence=1.1)
         with self.assertRaises(ValueError):
             WebUiConfig(jpeg_quality=0)
+        with self.assertRaises(ValueError):
+            WebUiConfig(clothing_color_threshold=1.1)
+        with self.assertRaises(ValueError):
+            WebUiConfig(color_minimum_dominance_ratio=-0.1)
 
     def test_performance_modes_have_explicit_model_sizes(self) -> None:
         self.assertEqual(performance_image_size("realtime"), 384)

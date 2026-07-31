@@ -11,7 +11,7 @@
         |          |
         |          +--> 场景对象 + YOLO-World 短提示词 + 必要属性
         |
-        +--> YOLO-World(person) --> HSV 白衣复核 --> ByteTrack IDs
+        +--> YOLO-World(person) --> ByteTrack IDs --> 白衣颜色分类与多帧稳定
                                                         |
                                                         v
                                              持久单目标选择器
@@ -23,7 +23,7 @@
                                              安全仲裁后的高级动作
 ```
 
-VLM 不逐帧运行，也不直接控制飞行。ByteTrack 没有独立的逐轨迹置信度，因此程序不会伪造该数据：存在稳定 `track_id` 且当前检测分数达到阈值时，状态机认为 tracking-by-detection 健康。白衣 HSV 复核通过后，观测才会标记为属性已验证。
+VLM 不逐帧运行，也不直接控制飞行。ByteTrack 没有独立的逐轨迹置信度，因此程序不会伪造该数据：存在稳定 `track_id` 且当前检测分数达到阈值时，状态机认为 tracking-by-detection 健康。白衣颜色分类经过同一 Track ID 的多帧稳定后，观测才会标记为属性已验证。
 
 ## 启动
 
