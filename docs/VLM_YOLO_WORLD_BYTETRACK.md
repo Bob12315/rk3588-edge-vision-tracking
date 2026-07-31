@@ -50,13 +50,15 @@ make track-white-person \
 
 这段素材只有约 1.89 秒，而且不是专门的跟踪评测集。它证明了工程链路和 ID 数据可用，不证明已通过遮挡、人员交叉、离画再入和 ID-switch 指标。白衣复核位于 ByteTrack 之后，某些帧的跟踪框如果包含较多背景或旁人，可能不通过颜色阈值；因此不能把“该 ID 本帧未输出”解读为跟踪器丢失。
 
-## 真实 VLM 尚待接入
+## 真实本地 VLM
 
-当前电脑没有本地 VLM 服务/推理库，也没有可用的云端 API 环境变量。`configs/vlm_white_clothing_example.json` 是契约回放样例，不代表真实 VLM 已执行。
+电脑端已使用 Ollama 0.32.5 和 `Qwen3-VL-2B` Q4_K_M 量化模型实现 `VisionLanguageModel.analyze()`。适配器通过本机 REST API 发送 JPEG 关键帧，用 JSON Schema 约束结果，再经本地契约复验。
 
-下一步需要在两条路径中选择一条：
+在当前视频首帧上，真实 VLM 识别到人物、奖牌、水瓶和运动场景，并为白衣任务输出 `person` 和 `white clothing`。AMD RX 6650 XT Vulkan 实测：
 
-1. 电脑端云 API：最快完成真实画面目录和候选复核，需要配置凭据，但不是断网方案。
-2. 电脑端本地 VLM：先用 CPU/GPU 可运行的小模型完成适配，后续再换成 RK3588 能承载的模型和运行时。
+- VLM 关键帧调用：模型已加载时 1.61 秒；含约 2.35 秒冷加载时为 5.68 秒。
+- 生成速度约 122.8 token/s，上下文 4096，单模型单并发。
+- 后续 57 帧 YOLO-World + ByteTrack 约 10.0 FPS，45 个白衣观测全部含 ID。
+- 完整输出位于 `outputs/white_clothes_local_vlm_yolo_world_bytetrack/`。
 
-无论选哪条，新适配器只需实现 `VisionLanguageModel.analyze()` 并输出 `VlmSceneAnalysis`，后续 YOLO-World、颜色复核、ByteTrack 和状态机都不需改。
+VLM 只在任务开始、多候选消歧或丢失重捕获时运行，不占用每帧实时链路。RK3588 迁移细节见 [本地 VLM 与 RK3588 NPU](LOCAL_VLM_RK3588.md)。

@@ -1,4 +1,4 @@
-.PHONY: check demo detect-person detect-person-yolo detect-white-person track-white-person test
+.PHONY: check demo detect-person detect-person-yolo detect-white-person track-white-person track-white-person-local-vlm vlm-install vlm-serve vlm-pull test
 
 VIDEO ?=
 WORLD_OUTPUT_DIR ?= outputs/person_yolo_world
@@ -6,6 +6,8 @@ YOLO_OUTPUT_DIR ?= outputs/person_yolo
 WHITE_OUTPUT_DIR ?= outputs/white_clothes_yolo_world_verified
 TRACK_OUTPUT_DIR ?= outputs/white_clothes_yolo_world_bytetrack
 WORLD_CONFIDENCE ?= 0.05
+OLLAMA_BIN ?= artifacts/ollama-runtime/bin/ollama
+VLM_MODEL ?= qwen3-vl:2b
 
 check:
 	python3 -m compileall -q src tests
@@ -29,6 +31,19 @@ detect-white-person:
 track-white-person:
 	@test -n "$(VIDEO)" || (echo "usage: make track-white-person VIDEO=/path/to/video.mp4" >&2; exit 2)
 	PYTHONPATH=src .venv/bin/python -m edge_vision.video_detection "$(VIDEO)" --backend yolo-world --vlm-plan configs/vlm_white_clothing_example.json --confidence "$(WORLD_CONFIDENCE)" --white-clothing --tracker bytetrack --tracker-config configs/bytetrack.yaml --output-dir "$(TRACK_OUTPUT_DIR)"
+
+track-white-person-local-vlm:
+	@test -n "$(VIDEO)" || (echo "usage: make track-white-person-local-vlm VIDEO=/path/to/video.mp4" >&2; exit 2)
+	PYTHONPATH=src .venv/bin/python -m edge_vision.video_detection "$(VIDEO)" --backend yolo-world --vlm-provider ollama --vlm-model "$(VLM_MODEL)" --vlm-frame-index 0 --confidence "$(WORLD_CONFIDENCE)" --white-clothing --tracker bytetrack --tracker-config configs/bytetrack.yaml --output-dir "$(TRACK_OUTPUT_DIR)"
+
+vlm-install:
+	./scripts/install_local_vlm.sh
+
+vlm-serve:
+	./scripts/start_local_vlm.sh
+
+vlm-pull:
+	OLLAMA_HOST=127.0.0.1:11434 "$(OLLAMA_BIN)" pull "$(VLM_MODEL)"
 
 test:
 	PYTHONPATH=src python3 -m unittest discover -s tests -v

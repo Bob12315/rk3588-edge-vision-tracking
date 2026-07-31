@@ -93,7 +93,20 @@ make detect-white-person VIDEO=/absolute/path/to/input.mp4
 make track-white-person VIDEO=/absolute/path/to/input.mp4
 ```
 
-该命令使用 `configs/vlm_white_clothing_example.json` 中已验证的 VLM 输出契约，将短类别词 `person` 交给 YOLO-World，再做白衣属性复核和 ByteTrack 数据关联。当前电脑尚未配置真实 VLM 运行时或 API，所以示例是确定性回放，不是伪装的 VLM 推理。完整链路、实测和接入点见 [VLM → YOLO-World → ByteTrack](docs/VLM_YOLO_WORLD_BYTETRACK.md)。
+该命令使用 `configs/vlm_white_clothing_example.json` 中已验证的 VLM 输出契约，将短类别词 `person` 交给 YOLO-World，再做白衣属性复核和 ByteTrack 数据关联。
+
+电脑端已选定并接入真实本地 `Qwen3-VL-2B`：
+
+```bash
+make vlm-install
+# 终端 1
+make vlm-serve
+# 终端 2，首次执行
+make vlm-pull
+make track-white-person-local-vlm VIDEO=/absolute/path/to/input.mp4
+```
+
+Ollama 运行时和 1.9 GB 量化模型都存在 `artifacts/` 中并被 Git 忽略；服务只监听 `127.0.0.1`、关闭云功能、单模型单并发。完整链路与实测见 [VLM → YOLO-World → ByteTrack](docs/VLM_YOLO_WORLD_BYTETRACK.md)，RK3588 NPU 部署路径见 [本地 VLM 与 RK3588 NPU](docs/LOCAL_VLM_RK3588.md)。
 
 当前测试视频的实测结果见 [YOLO-World 基线](docs/BASELINE_YOLO_WORLD_PERSON.md)和[普通 YOLO11n 对照](docs/BASELINE_PERSON.md)。
 
@@ -122,6 +135,6 @@ scripts/                 环境检查脚本
 3. 采集实际相机、飞行高度和场地光照数据，训练固定类别 YOLO，并加入框内 HSV 颜色复核。
 4. 转换 RKNN，在 RK3588 上测量预处理、NPU 推理、后处理和端到端 FPS。
 5. 接入 MAVLink 高级动作前，先完成 SITL、录制回放和安全故障注入。
-6. 选定电脑端真实 VLM 适配器，处理画面目录、关系目标解析和多候选消歧。
+6. 把 Qwen3-VL-2B 从电脑端 Ollama 适配器迁移到 RK3588 的 RKNN + RKLLM 运行时。
 
 详见 [docs/ROADMAP.md](docs/ROADMAP.md)。

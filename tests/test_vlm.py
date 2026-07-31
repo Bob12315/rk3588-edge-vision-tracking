@@ -1,6 +1,10 @@
 import unittest
 
-from edge_vision.vlm import scene_analysis_from_mapping, scene_analysis_to_mapping
+from edge_vision.vlm import (
+    normalize_grounding_prompts,
+    scene_analysis_from_mapping,
+    scene_analysis_to_mapping,
+)
 
 
 class VlmContractTests(unittest.TestCase):
@@ -35,6 +39,26 @@ class VlmContractTests(unittest.TestCase):
                     },
                 }
             )
+
+    def test_person_attribute_prompts_are_normalized_and_deduplicated(self) -> None:
+        analysis = scene_analysis_from_mapping(
+            {
+                "summary": "People in a scene.",
+                "objects": [{"name": "person", "attributes": [], "count": None}],
+                "grounding": {
+                    "user_query": "find white clothes",
+                    "yolo_world_prompts": [
+                        "person wearing white pants",
+                        "person_wearing_white_shirt",
+                    ],
+                    "required_attributes": ["white clothing"],
+                    "relation": "anyOf",
+                },
+            }
+        )
+        normalized = normalize_grounding_prompts(analysis)
+        self.assertEqual(normalized.grounding.yolo_world_prompts, ("person",))
+        self.assertIsNone(normalized.grounding.relation)
 
 
 if __name__ == "__main__":

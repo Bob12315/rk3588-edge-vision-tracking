@@ -18,6 +18,30 @@ class FrameDetector(Protocol):
     def detect(self, frame: Any, prompts: Sequence[str] = ()) -> Sequence[TargetObservation]: ...
 
 
+def read_video_frame(source: Path, frame_index: int) -> Any:
+    """Decode one keyframe for low-frequency VLM analysis."""
+
+    if frame_index < 0:
+        raise ValueError("VLM frame index must be non-negative")
+    try:
+        import cv2
+    except ImportError as exc:
+        raise RuntimeError("OpenCV is required to read a VLM keyframe") from exc
+
+    capture = cv2.VideoCapture(str(source.expanduser().resolve()))
+    if not capture.isOpened():
+        raise RuntimeError(f"cannot open video for VLM analysis: {source}")
+    try:
+        if frame_index:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+        ok, frame = capture.read()
+    finally:
+        capture.release()
+    if not ok:
+        raise RuntimeError(f"cannot decode VLM keyframe {frame_index} from {source}")
+    return frame
+
+
 def resolve_backend_defaults(
     backend: str, model: str | None, confidence: float | None
 ) -> tuple[str, float]:
@@ -328,10 +352,26 @@ def main() -> None:
     parser.add_argument("--class-ids", nargs="+", type=int, default=[0])
     parser.add_argument("--tracker", choices=("none", "bytetrack"), default="none")
     parser.add_argument("--tracker-config", default="configs/bytetrack.yaml")
-    parser.add_argument(
+    vlm_source = parser.add_mutually_exclusive_group()
+    vlm_source.add_argument(
         "--vlm-plan",
         type=Path,
         help="validated, previously generated VLM scene-analysis JSON for deterministic replay",
+    )
+    vlm_source.add_argument(
+        "--vlm-provider",
+        choices=("ollama",),
+        help="run a real local VLM on one keyframe before starting detection",
+    )
+    parser.add_argument("--vlm-model", default="qwen3-vl:2b")
+    parser.add_argument("--vlm-base-url", default="http://127.0.0.1:11434")
+    parser.add_argument("--vlm-frame-index", type=int, default=0)
+    parser.add_argument(
+        "--vlm-instruction",
+        default=(
+            "Describe the visible objects and create a grounding plan to find and track "
+            "people wearing white clothes."
+        ),
     )
     parser.add_argument("--white-clothing", action="store_true")
     parser.add_argument("--white-ratio-threshold", type=float, default=0.20)
@@ -353,6 +393,26 @@ def main() -> None:
             "mode": "precomputed-replay",
             "source": str(args.vlm_plan.expanduser().resolve()),
             "analysis": scene_analysis_to_mapping(analysis),
+        }
+    elif args.vlm_provider == "ollama":
+        from .adapters.ollama_vlm import OllamaVlm
+        from .vlm import normalize_grounding_prompts, scene_analysis_to_mapping
+
+        vlm = OllamaVlm(model=args.vlm_model, base_url=args.vlm_base_url)
+        keyframe = read_video_frame(args.source, args.vlm_frame_index)
+        analysis = normalize_grounding_prompts(
+            vlm.analyze(keyframe, args.vlm_instruction)
+        )
+        args.prompts = list(analysis.grounding.yolo_world_prompts)
+        vlm_context = {
+            "mode": "local-live",
+            "provider": "ollama",
+            "model": args.vlm_model,
+            "base_url": args.vlm_base_url,
+            "frame_index": args.vlm_frame_index,
+            "instruction": args.vlm_instruction,
+            "analysis": scene_analysis_to_mapping(analysis),
+            "performance": dict(vlm.last_metrics),
         }
 
     tracker_name = None if args.tracker == "none" else args.tracker

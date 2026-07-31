@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -95,3 +96,27 @@ def scene_analysis_to_mapping(analysis: VlmSceneAnalysis) -> dict[str, Any]:
             "relation": analysis.grounding.relation,
         },
     }
+
+
+def normalize_grounding_prompts(analysis: VlmSceneAnalysis) -> VlmSceneAnalysis:
+    """Keep person attributes out of YOLO-World prompts for deterministic verification."""
+
+    normalized = []
+    for prompt in analysis.grounding.yolo_world_prompts:
+        item = prompt.strip()
+        folded = item.casefold()
+        if folded == "person" or folded.startswith(("person ", "person_", "person-")):
+            item = "person"
+        if item.casefold() not in {existing.casefold() for existing in normalized}:
+            normalized.append(item)
+    relation = analysis.grounding.relation
+    if relation is not None and relation.casefold() in {"anyof", "none", "null"}:
+        relation = None
+    return replace(
+        analysis,
+        grounding=replace(
+            analysis.grounding,
+            yolo_world_prompts=tuple(normalized),
+            relation=relation,
+        ),
+    )
