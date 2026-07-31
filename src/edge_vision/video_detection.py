@@ -1,4 +1,4 @@
-"""Run closed-set object detection over a video and export reproducible evidence."""
+"""Run YOLO or YOLO-World over a video and export reproducible evidence."""
 
 from __future__ import annotations
 
@@ -16,6 +16,16 @@ from .contracts import TargetObservation
 
 class FrameDetector(Protocol):
     def detect(self, frame: Any, prompts: Sequence[str] = ()) -> Sequence[TargetObservation]: ...
+
+
+def resolve_backend_defaults(
+    backend: str, model: str | None, confidence: float | None
+) -> tuple[str, float]:
+    if backend == "yolo-world":
+        return model or "yolov8s-worldv2.pt", 0.10 if confidence is None else confidence
+    if backend == "yolo":
+        return model or "yolo11n.pt", 0.25 if confidence is None else confidence
+    raise ValueError(f"unsupported backend: {backend}")
 
 
 def percentile(values: Sequence[float], fraction: float) -> float:
@@ -101,7 +111,7 @@ def _draw_observations(frame: Any, observations: Sequence[TargetObservation], cv
         )
     cv2.putText(
         frame,
-        f"persons: {len(observations)}",
+        f"detections: {len(observations)}",
         (18, 36),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.9,
@@ -117,7 +127,10 @@ def run_video_detection(
     output_dir: Path,
     detector: FrameDetector,
     *,
+    backend_name: str,
     model_name: str,
+    class_ids: Sequence[int],
+    class_names: Sequence[str],
     confidence: float,
     image_size: int,
     device: str,
@@ -226,11 +239,11 @@ def run_video_detection(
             "duration_s": declared_frames / fps,
         },
         "inference": {
-            "backend": "ultralytics",
+            "backend": backend_name,
             "model": model_name,
             "device": device,
-            "class_ids": [0],
-            "class_names": ["person"],
+            "class_ids": list(class_ids),
+            "class_names": list(class_names),
             "confidence_threshold": confidence,
             "image_size": image_size,
             "warmup_ms": warmup_ms,
@@ -256,29 +269,56 @@ def run_video_detection(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
-    parser.add_argument("--output-dir", type=Path, default=Path("outputs/person_baseline"))
-    parser.add_argument("--model", default="yolo11n.pt")
-    parser.add_argument("--confidence", type=float, default=0.25)
+    parser.add_argument("--backend", choices=("yolo-world", "yolo"), default="yolo-world")
+    parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--model")
+    parser.add_argument("--confidence", type=float)
+    parser.add_argument("--prompts", nargs="+", default=["person"])
+    parser.add_argument("--class-ids", nargs="+", type=int, default=[0])
     parser.add_argument("--image-size", type=int, default=640)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--max-frames", type=int)
     args = parser.parse_args()
 
-    from .adapters.ultralytics_yolo import UltralyticsYoloDetector
+    model, confidence = resolve_backend_defaults(args.backend, args.model, args.confidence)
+    if args.output_dir is None:
+        suffix = "yolo_world" if args.backend == "yolo-world" else "yolo"
+        args.output_dir = Path(f"outputs/person_{suffix}")
 
-    detector = UltralyticsYoloDetector(
-        args.model,
-        class_ids=(0,),
-        confidence=args.confidence,
-        image_size=args.image_size,
-        device=args.device,
-    )
+    if args.backend == "yolo-world":
+        from .adapters.ultralytics_yolo_world import UltralyticsYoloWorldDetector
+
+        detector = UltralyticsYoloWorldDetector(
+            model,
+            prompts=args.prompts,
+            confidence=confidence,
+            image_size=args.image_size,
+            device=args.device,
+        )
+        class_ids = detector.class_ids
+        class_names = detector.class_names
+    else:
+        from .adapters.ultralytics_yolo import UltralyticsYoloDetector
+
+        detector = UltralyticsYoloDetector(
+            model,
+            class_ids=args.class_ids,
+            confidence=confidence,
+            image_size=args.image_size,
+            device=args.device,
+        )
+        class_ids = detector.class_ids
+        class_names = detector.class_names
+
     summary = run_video_detection(
         args.source,
         args.output_dir,
         detector,
-        model_name=args.model,
-        confidence=args.confidence,
+        backend_name=args.backend,
+        model_name=model,
+        class_ids=class_ids,
+        class_names=class_names,
+        confidence=confidence,
         image_size=args.image_size,
         device=args.device,
         max_frames=args.max_frames,

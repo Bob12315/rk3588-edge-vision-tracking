@@ -8,6 +8,38 @@ from typing import Any, Sequence
 from edge_vision.contracts import BoundingBox, TargetObservation
 
 
+def result_to_observations(result: Any, width: int, height: int) -> list[TargetObservation]:
+    if result.boxes is None:
+        return []
+
+    observations = []
+    xyxy_values = result.boxes.xyxy.cpu().tolist()
+    confidence_values = result.boxes.conf.cpu().tolist()
+    class_values = result.boxes.cls.cpu().tolist()
+    for xyxy, confidence, class_value in zip(
+        xyxy_values, confidence_values, class_values
+    ):
+        x1, y1, x2, y2 = xyxy
+        normalized = (
+            max(0.0, min(1.0, x1 / width)),
+            max(0.0, min(1.0, y1 / height)),
+            max(0.0, min(1.0, x2 / width)),
+            max(0.0, min(1.0, y2 / height)),
+        )
+        if normalized[0] >= normalized[2] or normalized[1] >= normalized[3]:
+            continue
+        class_id = int(class_value)
+        observations.append(
+            TargetObservation(
+                label=str(result.names[class_id]),
+                class_id=class_id,
+                box=BoundingBox(*normalized),
+                detector_confidence=float(confidence),
+            )
+        )
+    return observations
+
+
 class UltralyticsYoloDetector:
     def __init__(
         self,
@@ -31,6 +63,7 @@ class UltralyticsYoloDetector:
         self.image_size = image_size
         self.device = device
         self._model = YOLO(self.model_path)
+        self.class_names = tuple(str(self._model.names[item]) for item in self.class_ids)
 
     def detect(
         self, frame: Any, prompts: Sequence[str] = ()
@@ -45,32 +78,4 @@ class UltralyticsYoloDetector:
             device=self.device,
             verbose=False,
         )[0]
-        if result.boxes is None:
-            return []
-
-        observations = []
-        xyxy_values = result.boxes.xyxy.cpu().tolist()
-        confidence_values = result.boxes.conf.cpu().tolist()
-        class_values = result.boxes.cls.cpu().tolist()
-        for xyxy, confidence, class_value in zip(
-            xyxy_values, confidence_values, class_values
-        ):
-            x1, y1, x2, y2 = xyxy
-            normalized = (
-                max(0.0, min(1.0, x1 / width)),
-                max(0.0, min(1.0, y1 / height)),
-                max(0.0, min(1.0, x2 / width)),
-                max(0.0, min(1.0, y2 / height)),
-            )
-            if normalized[0] >= normalized[2] or normalized[1] >= normalized[3]:
-                continue
-            class_id = int(class_value)
-            observations.append(
-                TargetObservation(
-                    label=str(result.names[class_id]),
-                    class_id=class_id,
-                    box=BoundingBox(*normalized),
-                    detector_confidence=float(confidence),
-                )
-            )
-        return observations
+        return result_to_observations(result, width, height)

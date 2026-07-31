@@ -1,6 +1,6 @@
 # RK3588 边缘机载视觉
 
-面向无人机的目标搜索、锁定、持续跟踪与丢失重捕获项目。当前仓库先建立可测试的控制骨架，把感知模型、任务状态机、安全仲裁和飞控边界分开；真实 YOLO、YOLO-World、跟踪器、RKNN 与 MAVLink 适配器将在后续阶段逐项接入。
+面向无人机的目标搜索、锁定、持续跟踪与丢失重捕获项目。当前仓库先建立可测试的控制骨架，把感知模型、任务状态机、安全仲裁和飞控边界分开；普通 YOLO 与 YOLO-World 已完成电脑端视频接入，跟踪器、RKNN 与 MAVLink 适配器将在后续阶段逐项加入。
 
 原始方案见 [RK3588_VLM_YOLO_Tracking_Summary.docx](RK3588_VLM_YOLO_Tracking_Summary.docx)。工程化解读和边界见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -17,6 +17,7 @@
 - `SEARCH → LOCK → TRACK → LOST → HOLD` 的确定性状态机。
 - 低电量、定位异常、近障和人工保持的安全覆盖逻辑。
 - 模型无关的数据契约与可替换适配器接口。
+- YOLO-World 运行时文本提示，以及普通 YOLO 对照基线。
 - 无第三方依赖的模拟回放 CLI 和单元测试。
 - RK3588 环境检查、数据采集清单和分阶段实施计划。
 
@@ -39,9 +40,9 @@ python3 -m pip install -e .
 edge-vision-demo --scenario nominal
 ```
 
-### 电脑端人物检测
+### 电脑端 YOLO-World 开放词汇检测
 
-人物检测基线使用 YOLO11n；依赖放在项目虚拟环境，不安装到系统 Python：
+主检测链路使用 `yolov8s-worldv2.pt`，运行时可传入文字类别。依赖放在项目虚拟环境，不安装到系统 Python：
 
 ```bash
 python3 -m venv .venv
@@ -50,7 +51,18 @@ python3 -m venv .venv
 make detect-person VIDEO=/absolute/path/to/input.mp4
 ```
 
-默认输出到 `outputs/person_baseline/`：
+`make detect-person` 使用 YOLO-World、文本提示 `person` 和针对当前密集人群视频选取的 `0.05` 初始阈值，默认输出到 `outputs/person_yolo_world/`。首次设置文字类别时会额外下载 CLIP 文本编码器权重。其他场景必须重新验证阈值。
+
+任意英文提示可直接通过 CLI 指定：
+
+```bash
+PYTHONPATH=src .venv/bin/python -m edge_vision.video_detection input.mp4 \
+  --backend yolo-world \
+  --prompts "person" "blue box" "red vehicle" \
+  --output-dir outputs/open_vocabulary
+```
+
+输出包括：
 
 - `annotated.mp4`：带人物框和置信度的视频。
 - `detections.jsonl`：逐帧时间戳、归一化框、像素框和置信度。
@@ -59,7 +71,13 @@ make detect-person VIDEO=/absolute/path/to/input.mp4
 
 原视频、输出视频、模型和权重均不提交 Git。
 
-当前测试视频的实测数据见 [docs/BASELINE_PERSON.md](docs/BASELINE_PERSON.md)。
+保留普通 YOLO11n 作为固定类别速度与召回对照：
+
+```bash
+make detect-person-yolo VIDEO=/absolute/path/to/input.mp4
+```
+
+当前测试视频的实测结果见 [YOLO-World 基线](docs/BASELINE_YOLO_WORLD_PERSON.md)和[普通 YOLO11n 对照](docs/BASELINE_PERSON.md)。
 
 在 RK3588 板端执行基础盘点：
 
@@ -81,11 +99,11 @@ scripts/                 环境检查脚本
 
 ## 接下来的里程碑
 
-1. 用更多录制视频验证现有 YOLO11n 人物检测基线，补充人工标注并计算精度。
+1. 用更多录制视频验证 YOLO-World 与 YOLO11n 人物检测，补充人工标注并计算精度。
 2. 接入多目标跟踪器与周期重检，完成遮挡、交叉和离画重捕获测试。
 3. 采集实际相机、飞行高度和场地光照数据，训练固定类别 YOLO，并加入框内 HSV 颜色复核。
 4. 转换 RKNN，在 RK3588 上测量预处理、NPU 推理、后处理和端到端 FPS。
 5. 接入 MAVLink 高级动作前，先完成 SITL、录制回放和安全故障注入。
-6. 最后评估 YOLO-World 与轻量 VLM，仅处理开放目标和复杂语义。
+6. 加入轻量 VLM，处理关系目标解析和多个候选消歧。
 
 详见 [docs/ROADMAP.md](docs/ROADMAP.md)。

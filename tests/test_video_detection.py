@@ -1,10 +1,25 @@
 import unittest
 
 from edge_vision.contracts import BoundingBox, TargetObservation
-from edge_vision.video_detection import RunStatistics, observation_to_mapping, percentile
+from edge_vision.video_detection import (
+    RunStatistics,
+    observation_to_mapping,
+    percentile,
+    resolve_backend_defaults,
+)
 
 
 class VideoDetectionUtilityTests(unittest.TestCase):
+    def test_backend_defaults_select_yolo_world(self) -> None:
+        model, confidence = resolve_backend_defaults("yolo-world", None, None)
+        self.assertEqual(model, "yolov8s-worldv2.pt")
+        self.assertEqual(confidence, 0.10)
+
+    def test_backend_defaults_preserve_explicit_values(self) -> None:
+        model, confidence = resolve_backend_defaults("yolo", "custom.pt", 0.4)
+        self.assertEqual(model, "custom.pt")
+        self.assertEqual(confidence, 0.4)
+
     def test_percentile_interpolates(self) -> None:
         self.assertEqual(percentile([10.0, 20.0, 30.0], 0.5), 20.0)
         self.assertAlmostEqual(percentile([10.0, 20.0], 0.95), 19.5)

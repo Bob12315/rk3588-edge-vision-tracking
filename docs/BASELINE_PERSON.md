@@ -1,4 +1,4 @@
-# 电脑端人物检测基线
+# 电脑端普通 YOLO11n 人物检测对照基线
 
 ## 输入与配置
 
@@ -43,7 +43,9 @@
 ## 复现
 
 ```bash
-make detect-person VIDEO=/absolute/path/to/37abaa4512176295e7462a589a64674a.mp4
+make detect-person-yolo \
+  VIDEO=/absolute/path/to/37abaa4512176295e7462a589a64674a.mp4 \
+  YOLO_OUTPUT_DIR=outputs/person_baseline
 ```
 
 结果保存在 `outputs/person_baseline/`，包括带框视频、逐帧 JSONL、代表帧和机器可读汇总。输出和模型权重默认不提交 Git。
@@ -53,3 +55,5 @@ make detect-person VIDEO=/absolute/path/to/37abaa4512176295e7462a589a64674a.mp4
 电脑端先使用 YOLO11n 固化结果格式和回归视频。Rockchip 官方 [RKNN Model Zoo](https://github.com/airockchip/rknn_model_zoo) 已包含 RK3588 的 YOLO11 示例和 ONNX→RKNN 转换流程；上板时替换推理适配器，并用同一视频对比电脑端与 RKNN 的框、置信度、吞吐和量化精度损失。
 
 Ultralytics 软件和模型的使用、分发应在正式产品化前单独完成许可证审查。
+
+YOLO-World 的同视频结果见 [BASELINE_YOLO_WORLD_PERSON.md](BASELINE_YOLO_WORLD_PERSON.md)。
