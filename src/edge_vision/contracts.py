@@ -56,6 +56,7 @@ class TargetObservation:
     color_confidence: Optional[float] = None
     distance_m: Optional[float] = None
     track_id: Optional[int] = None
+    class_id: Optional[int] = None
 
     def __post_init__(self) -> None:
         confidence_values = (
@@ -91,7 +92,9 @@ class Decision:
 
 
 class Detector(Protocol):
-    def detect(self, frame: Any, prompts: Sequence[str]) -> Sequence[TargetObservation]: ...
+    def detect(
+        self, frame: Any, prompts: Sequence[str] = ()
+    ) -> Sequence[TargetObservation]: ...
 
 
 class Tracker(Protocol):

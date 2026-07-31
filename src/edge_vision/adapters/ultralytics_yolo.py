@@ -1,0 +1,76 @@
+"""Ultralytics YOLO adapter used by the x86 development baseline."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Sequence
+
+from edge_vision.contracts import BoundingBox, TargetObservation
+
+
+class UltralyticsYoloDetector:
+    def __init__(
+        self,
+        model: str | Path = "yolo11n.pt",
+        *,
+        class_ids: Sequence[int] = (0,),
+        confidence: float = 0.25,
+        image_size: int = 640,
+        device: str = "cpu",
+    ) -> None:
+        try:
+            from ultralytics import YOLO
+        except ImportError as exc:
+            raise RuntimeError(
+                "Ultralytics is required for PC inference; install requirements-pc.txt"
+            ) from exc
+
+        self.model_path = str(model)
+        self.class_ids = tuple(class_ids)
+        self.confidence = confidence
+        self.image_size = image_size
+        self.device = device
+        self._model = YOLO(self.model_path)
+
+    def detect(
+        self, frame: Any, prompts: Sequence[str] = ()
+    ) -> Sequence[TargetObservation]:
+        del prompts  # Closed-set YOLO uses configured class IDs, not runtime text prompts.
+        height, width = frame.shape[:2]
+        result = self._model.predict(
+            source=frame,
+            classes=list(self.class_ids),
+            conf=self.confidence,
+            imgsz=self.image_size,
+            device=self.device,
+            verbose=False,
+        )[0]
+        if result.boxes is None:
+            return []
+
+        observations = []
+        xyxy_values = result.boxes.xyxy.cpu().tolist()
+        confidence_values = result.boxes.conf.cpu().tolist()
+        class_values = result.boxes.cls.cpu().tolist()
+        for xyxy, confidence, class_value in zip(
+            xyxy_values, confidence_values, class_values
+        ):
+            x1, y1, x2, y2 = xyxy
+            normalized = (
+                max(0.0, min(1.0, x1 / width)),
+                max(0.0, min(1.0, y1 / height)),
+                max(0.0, min(1.0, x2 / width)),
+                max(0.0, min(1.0, y2 / height)),
+            )
+            if normalized[0] >= normalized[2] or normalized[1] >= normalized[3]:
+                continue
+            class_id = int(class_value)
+            observations.append(
+                TargetObservation(
+                    label=str(result.names[class_id]),
+                    class_id=class_id,
+                    box=BoundingBox(*normalized),
+                    detector_confidence=float(confidence),
+                )
+            )
+        return observations

@@ -27,7 +27,9 @@ class SafetyArbiter:
         if telemetry.operator_hold:
             return self._override(Action.HOLD, "operator hold is active", requested)
         if not telemetry.localization_ok:
-            return self._override(Action.HOLD, "localization is unhealthy; RTL is unsafe", requested)
+            return self._override(
+                Action.HOLD, "localization is unhealthy; RTL is unsafe", requested
+            )
         if telemetry.battery_percent <= self.config.battery_rtl_percent:
             return self._override(Action.RTL, "battery at return-to-launch threshold", requested)
         if (

@@ -21,6 +21,8 @@ datasets/*
 recordings/
 outputs/
 logs/
+runs/
+.ultralytics/
 *.rknn
 *.onnx
 *.pt

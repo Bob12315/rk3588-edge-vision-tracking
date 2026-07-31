@@ -39,6 +39,28 @@ python3 -m pip install -e .
 edge-vision-demo --scenario nominal
 ```
 
+### 电脑端人物检测
+
+人物检测基线使用 YOLO11n；依赖放在项目虚拟环境，不安装到系统 Python：
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+.venv/bin/python -m pip install -r requirements-pc.txt
+make detect-person VIDEO=/absolute/path/to/input.mp4
+```
+
+默认输出到 `outputs/person_baseline/`：
+
+- `annotated.mp4`：带人物框和置信度的视频。
+- `detections.jsonl`：逐帧时间戳、归一化框、像素框和置信度。
+- `summary.json`：检测数量、吞吐率和 P50/P95/P99 推理延迟。
+- `preview.jpg`：检测人数最多的代表帧。
+
+原视频、输出视频、模型和权重均不提交 Git。
+
+当前测试视频的实测数据见 [docs/BASELINE_PERSON.md](docs/BASELINE_PERSON.md)。
+
 在 RK3588 板端执行基础盘点：
 
 ```bash
@@ -59,8 +81,8 @@ scripts/                 环境检查脚本
 
 ## 接下来的里程碑
 
-1. 使用录制视频接入普通 YOLO，固定输入输出契约并建立精度/时延基线。
-2. 接入单目标跟踪器与周期重检，完成遮挡、交叉和离画重捕获测试。
+1. 用更多录制视频验证现有 YOLO11n 人物检测基线，补充人工标注并计算精度。
+2. 接入多目标跟踪器与周期重检，完成遮挡、交叉和离画重捕获测试。
 3. 采集实际相机、飞行高度和场地光照数据，训练固定类别 YOLO，并加入框内 HSV 颜色复核。
 4. 转换 RKNN，在 RK3588 上测量预处理、NPU 推理、后处理和端到端 FPS。
 5. 接入 MAVLink 高级动作前，先完成 SITL、录制回放和安全故障注入。
