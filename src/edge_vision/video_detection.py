@@ -43,10 +43,22 @@ def percentile(values: Sequence[float], fraction: float) -> float:
 class RunStatistics:
     detection_counts: list[int] = field(default_factory=list)
     inference_ms: list[float] = field(default_factory=list)
+    track_frame_counts: dict[int, int] = field(default_factory=dict)
+    untracked_observations: int = 0
 
-    def record(self, detection_count: int, inference_ms: float) -> None:
+    def record(
+        self,
+        detection_count: int,
+        inference_ms: float,
+        track_ids: Sequence[int | None] = (),
+    ) -> None:
         self.detection_counts.append(detection_count)
         self.inference_ms.append(inference_ms)
+        for track_id in track_ids:
+            if track_id is None:
+                self.untracked_observations += 1
+                continue
+            self.track_frame_counts[track_id] = self.track_frame_counts.get(track_id, 0) + 1
 
     def to_mapping(self, wall_time_s: float) -> Mapping[str, Any]:
         frame_count = len(self.detection_counts)
@@ -71,13 +83,30 @@ class RunStatistics:
             },
         }
 
+    def tracking_mapping(self, enabled: bool) -> Mapping[str, Any]:
+        frame_counts = list(self.track_frame_counts.values())
+        tracked = sum(frame_counts)
+        return {
+            "enabled": enabled,
+            "unique_track_ids": len(frame_counts),
+            "tracked_observations": tracked,
+            "untracked_observations": self.untracked_observations,
+            "observations_per_track": {
+                "min": min(frame_counts, default=0),
+                "max": max(frame_counts, default=0),
+                "mean": statistics.fmean(frame_counts) if frame_counts else 0.0,
+            },
+        }
+
 
 def observation_to_mapping(observation: TargetObservation, width: int, height: int) -> dict:
     box = observation.box
     return {
         "class_id": observation.class_id,
         "label": observation.label,
+        "track_id": observation.track_id,
         "confidence": observation.detector_confidence,
+        "tracker_confidence": observation.tracker_confidence,
         "color_score": observation.color_confidence,
         "box_xyxy_normalized": [box.x1, box.y1, box.x2, box.y2],
         "box_xyxy_pixels": [
@@ -99,6 +128,8 @@ def _draw_observations(frame: Any, observations: Sequence[TargetObservation], cv
         y2 = round(observation.box.y2 * height)
         cv2.rectangle(frame, (x1, y1), (x2, y2), (40, 220, 40), 2)
         label = f"{observation.label} {observation.detector_confidence:.2f}"
+        if observation.track_id is not None:
+            label = f"ID {observation.track_id} | {label}"
         if observation.color_confidence is not None:
             label += f" white={observation.color_confidence:.2f}"
         text_y = max(20, y1 - 6)
@@ -138,6 +169,9 @@ def run_video_detection(
     image_size: int,
     device: str,
     postprocess: Mapping[str, Any] | None = None,
+    tracker_name: str | None = None,
+    tracker_config: str | None = None,
+    vlm_context: Mapping[str, Any] | None = None,
     max_frames: int | None = None,
 ) -> dict:
     try:
@@ -186,7 +220,11 @@ def run_video_detection(
         writer.release()
         raise RuntimeError("video contains no decodable frames")
     warmup_started = time.perf_counter()
-    detector.detect(first_frame)
+    warmup = getattr(detector, "warmup", None)
+    if callable(warmup):
+        warmup(first_frame)
+    else:
+        detector.detect(first_frame)
     warmup_ms = (time.perf_counter() - warmup_started) * 1000.0
     started = time.perf_counter()
 
@@ -203,7 +241,11 @@ def run_video_detection(
                 inference_started = time.perf_counter()
                 observations = list(detector.detect(frame))
                 inference_ms = (time.perf_counter() - inference_started) * 1000.0
-                stats.record(len(observations), inference_ms)
+                stats.record(
+                    len(observations),
+                    inference_ms,
+                    [item.track_id for item in observations],
+                )
 
                 record = {
                     "frame_id": frame_id,
@@ -251,9 +293,13 @@ def run_video_detection(
             "confidence_threshold": confidence,
             "image_size": image_size,
             "warmup_ms": warmup_ms,
+            "tracker": tracker_name,
+            "tracker_config": tracker_config,
         },
+        "vlm": dict(vlm_context or {}),
         "postprocess": dict(postprocess or {}),
         **stats.to_mapping(wall_time_s),
+        "tracking": stats.tracking_mapping(tracker_name is not None),
         "outputs": {
             "annotated_video": str(output_video),
             "detections_jsonl": str(records_path),
@@ -280,6 +326,13 @@ def main() -> None:
     parser.add_argument("--confidence", type=float)
     parser.add_argument("--prompts", nargs="+", default=["person"])
     parser.add_argument("--class-ids", nargs="+", type=int, default=[0])
+    parser.add_argument("--tracker", choices=("none", "bytetrack"), default="none")
+    parser.add_argument("--tracker-config", default="configs/bytetrack.yaml")
+    parser.add_argument(
+        "--vlm-plan",
+        type=Path,
+        help="validated, previously generated VLM scene-analysis JSON for deterministic replay",
+    )
     parser.add_argument("--white-clothing", action="store_true")
     parser.add_argument("--white-ratio-threshold", type=float, default=0.20)
     parser.add_argument("--white-saturation-max", type=int, default=60)
@@ -289,6 +342,28 @@ def main() -> None:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--max-frames", type=int)
     args = parser.parse_args()
+
+    vlm_context = None
+    if args.vlm_plan is not None:
+        from .vlm import load_scene_analysis, scene_analysis_to_mapping
+
+        analysis = load_scene_analysis(args.vlm_plan)
+        args.prompts = list(analysis.grounding.yolo_world_prompts)
+        vlm_context = {
+            "mode": "precomputed-replay",
+            "source": str(args.vlm_plan.expanduser().resolve()),
+            "analysis": scene_analysis_to_mapping(analysis),
+        }
+
+    tracker_name = None if args.tracker == "none" else args.tracker
+    tracker_config = None
+    if tracker_name is not None:
+        configured_path = Path(args.tracker_config).expanduser()
+        tracker_config = (
+            str(configured_path.resolve())
+            if configured_path.is_file()
+            else args.tracker_config
+        )
 
     model, confidence = resolve_backend_defaults(args.backend, args.model, args.confidence)
     if args.output_dir is None:
@@ -304,6 +379,7 @@ def main() -> None:
             confidence=confidence,
             image_size=args.image_size,
             device=args.device,
+            tracker_config=tracker_config,
         )
         class_ids = detector.class_ids
         class_names = detector.class_names
@@ -316,6 +392,7 @@ def main() -> None:
             confidence=confidence,
             image_size=args.image_size,
             device=args.device,
+            tracker_config=tracker_config,
         )
         class_ids = detector.class_ids
         class_names = detector.class_names
@@ -359,6 +436,9 @@ def main() -> None:
         image_size=args.image_size,
         device=args.device,
         postprocess=postprocess,
+        tracker_name=tracker_name,
+        tracker_config=tracker_config,
+        vlm_context=vlm_context,
         max_frames=args.max_frames,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))

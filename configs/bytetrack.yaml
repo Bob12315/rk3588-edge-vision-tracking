@@ -1,0 +1,9 @@
+# ByteTrack settings for the current YOLO-World confidence floor (0.05).
+# Re-tune on the actual camera and flight scenes; low thresholds favor recall.
+tracker_type: bytetrack
+track_high_thresh: 0.05
+track_low_thresh: 0.01
+new_track_thresh: 0.05
+track_buffer: 30
+match_thresh: 0.8
+fuse_score: true

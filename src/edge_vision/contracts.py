@@ -69,6 +69,52 @@ class TargetObservation:
 
 
 @dataclass(frozen=True)
+class SceneObject:
+    """Object category and optional attributes reported by a VLM."""
+
+    name: str
+    attributes: tuple[str, ...] = ()
+    count: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        if not self.name.strip():
+            raise ValueError("scene-object name must not be empty")
+        if self.count is not None and self.count < 0:
+            raise ValueError("scene-object count must be non-negative")
+
+
+@dataclass(frozen=True)
+class GroundingTask:
+    """Structured target description passed from a VLM to a grounding detector."""
+
+    user_query: str
+    yolo_world_prompts: tuple[str, ...]
+    required_attributes: tuple[str, ...] = ()
+    relation: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not self.user_query.strip():
+            raise ValueError("grounding user_query must not be empty")
+        if not self.yolo_world_prompts or any(
+            not prompt.strip() for prompt in self.yolo_world_prompts
+        ):
+            raise ValueError("grounding requires at least one non-empty YOLO-World prompt")
+
+
+@dataclass(frozen=True)
+class VlmSceneAnalysis:
+    """Provider-neutral, structured output from one low-frequency VLM call."""
+
+    summary: str
+    objects: tuple[SceneObject, ...]
+    grounding: GroundingTask
+
+    def __post_init__(self) -> None:
+        if not self.summary.strip():
+            raise ValueError("VLM scene summary must not be empty")
+
+
+@dataclass(frozen=True)
 class PerceptionSnapshot:
     frame_id: int
     timestamp_s: float
@@ -95,6 +141,12 @@ class Detector(Protocol):
     def detect(
         self, frame: Any, prompts: Sequence[str] = ()
     ) -> Sequence[TargetObservation]: ...
+
+
+class VisionLanguageModel(Protocol):
+    """Low-frequency scene understanding; never controls the vehicle directly."""
+
+    def analyze(self, frame: Any, instruction: str) -> VlmSceneAnalysis: ...
 
 
 class Tracker(Protocol):

@@ -34,16 +34,29 @@ class VideoDetectionUtilityTests(unittest.TestCase):
         self.assertEqual(report["performance"]["throughput_fps"], 4.0)
         self.assertAlmostEqual(report["performance"]["inference_ms"]["p95"], 19.5)
 
+    def test_statistics_summarize_track_ids(self) -> None:
+        stats = RunStatistics()
+        stats.record(2, 10.0, [7, 8])
+        stats.record(2, 11.0, [7, None])
+        tracking = stats.tracking_mapping(enabled=True)
+        self.assertTrue(tracking["enabled"])
+        self.assertEqual(tracking["unique_track_ids"], 2)
+        self.assertEqual(tracking["tracked_observations"], 3)
+        self.assertEqual(tracking["untracked_observations"], 1)
+        self.assertEqual(tracking["observations_per_track"]["max"], 2)
+
     def test_observation_serializes_normalized_and_pixel_boxes(self) -> None:
         observation = TargetObservation(
             label="person",
             class_id=0,
             box=BoundingBox(0.1, 0.2, 0.5, 0.8),
             detector_confidence=0.9,
+            track_id=12,
         )
         record = observation_to_mapping(observation, width=1000, height=500)
         self.assertEqual(record["box_xyxy_pixels"], [100, 100, 500, 400])
         self.assertEqual(record["center_normalized"], [0.3, 0.5])
+        self.assertEqual(record["track_id"], 12)
         self.assertIsNone(record["color_score"])
 
 

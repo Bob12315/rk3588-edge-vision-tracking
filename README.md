@@ -1,6 +1,6 @@
 # RK3588 边缘机载视觉
 
-面向无人机的目标搜索、锁定、持续跟踪与丢失重捕获项目。当前仓库先建立可测试的控制骨架，把感知模型、任务状态机、安全仲裁和飞控边界分开；普通 YOLO 与 YOLO-World 已完成电脑端视频接入，跟踪器、RKNN 与 MAVLink 适配器将在后续阶段逐项加入。
+面向无人机的目标搜索、锁定、持续跟踪与丢失重捕获项目。当前仓库先建立可测试的控制骨架，把感知模型、任务状态机、安全仲裁和飞控边界分开；YOLO-World、普通 YOLO 和 ByteTrack 已完成电脑端视频接入，RKNN 与 MAVLink 适配器将在后续阶段逐项加入。
 
 原始方案见 [RK3588_VLM_YOLO_Tracking_Summary.docx](RK3588_VLM_YOLO_Tracking_Summary.docx)。工程化解读和边界见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -18,6 +18,8 @@
 - 低电量、定位异常、近障和人工保持的安全覆盖逻辑。
 - 模型无关的数据契约与可替换适配器接口。
 - YOLO-World 运行时文本提示，以及普通 YOLO 对照基线。
+- ByteTrack 多目标 ID、逐帧 JSONL 记录和轨迹统计。
+- 与供应商无关的 VLM 结构化输出契约及离线回放入口。
 - 无第三方依赖的模拟回放 CLI 和单元测试。
 - RK3588 环境检查、数据采集清单和分阶段实施计划。
 
@@ -85,6 +87,14 @@ make detect-white-person VIDEO=/absolute/path/to/input.mp4
 
 直接把 `person wearing white clothes` 作为单一开放词汇提示，在当前视频中会误框多名红衣人物，因此不作为最终颜色判定。两级流程和本次结果见 [docs/WHITE_CLOTHING_DETECTION.md](docs/WHITE_CLOTHING_DETECTION.md)。
 
+加入 ByteTrack 持续 ID，并回放结构化 VLM 任务：
+
+```bash
+make track-white-person VIDEO=/absolute/path/to/input.mp4
+```
+
+该命令使用 `configs/vlm_white_clothing_example.json` 中已验证的 VLM 输出契约，将短类别词 `person` 交给 YOLO-World，再做白衣属性复核和 ByteTrack 数据关联。当前电脑尚未配置真实 VLM 运行时或 API，所以示例是确定性回放，不是伪装的 VLM 推理。完整链路、实测和接入点见 [VLM → YOLO-World → ByteTrack](docs/VLM_YOLO_WORLD_BYTETRACK.md)。
+
 当前测试视频的实测结果见 [YOLO-World 基线](docs/BASELINE_YOLO_WORLD_PERSON.md)和[普通 YOLO11n 对照](docs/BASELINE_PERSON.md)。
 
 在 RK3588 板端执行基础盘点：
@@ -108,10 +118,10 @@ scripts/                 环境检查脚本
 ## 接下来的里程碑
 
 1. 用更多录制视频验证 YOLO-World 与 YOLO11n 人物检测，补充人工标注并计算精度。
-2. 接入多目标跟踪器与周期重检，完成遮挡、交叉和离画重捕获测试。
+2. 用专用长视频测试 ByteTrack 的遮挡、交叉、离画重捕获和 ID 切换率。
 3. 采集实际相机、飞行高度和场地光照数据，训练固定类别 YOLO，并加入框内 HSV 颜色复核。
 4. 转换 RKNN，在 RK3588 上测量预处理、NPU 推理、后处理和端到端 FPS。
 5. 接入 MAVLink 高级动作前，先完成 SITL、录制回放和安全故障注入。
-6. 加入轻量 VLM，处理关系目标解析和多个候选消歧。
+6. 选定电脑端真实 VLM 适配器，处理画面目录、关系目标解析和多候选消歧。
 
 详见 [docs/ROADMAP.md](docs/ROADMAP.md)。

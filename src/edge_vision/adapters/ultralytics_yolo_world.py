@@ -19,6 +19,7 @@ class UltralyticsYoloWorldDetector:
         confidence: float = 0.10,
         image_size: int = 640,
         device: str = "cpu",
+        tracker_config: str | Path | None = None,
     ) -> None:
         try:
             from ultralytics import YOLOWorld
@@ -31,6 +32,7 @@ class UltralyticsYoloWorldDetector:
         self.confidence = confidence
         self.image_size = image_size
         self.device = device
+        self.tracker_config = None if tracker_config is None else str(tracker_config)
         self._model = YOLOWorld(self.model_path)
         self._prompts: tuple[str, ...] = ()
         self.set_prompts(prompts)
@@ -62,11 +64,30 @@ class UltralyticsYoloWorldDetector:
         if prompts:
             self.set_prompts(prompts)
         height, width = frame.shape[:2]
-        result = self._model.predict(
+        arguments = {
+            "source": frame,
+            "conf": self.confidence,
+            "imgsz": self.image_size,
+            "device": self.device,
+            "verbose": False,
+        }
+        if self.tracker_config is None:
+            result = self._model.predict(**arguments)[0]
+        else:
+            result = self._model.track(
+                **arguments,
+                persist=True,
+                tracker=self.tracker_config,
+            )[0]
+        return result_to_observations(result, width, height)
+
+    def warmup(self, frame: Any) -> None:
+        """Warm model kernels without advancing the stateful tracker."""
+
+        self._model.predict(
             source=frame,
             conf=self.confidence,
             imgsz=self.image_size,
             device=self.device,
             verbose=False,
-        )[0]
-        return result_to_observations(result, width, height)
+        )

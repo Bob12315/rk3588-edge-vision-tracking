@@ -16,8 +16,14 @@ def result_to_observations(result: Any, width: int, height: int) -> list[TargetO
     xyxy_values = result.boxes.xyxy.cpu().tolist()
     confidence_values = result.boxes.conf.cpu().tolist()
     class_values = result.boxes.cls.cpu().tolist()
-    for xyxy, confidence, class_value in zip(
-        xyxy_values, confidence_values, class_values
+    box_ids = getattr(result.boxes, "id", None)
+    track_ids = (
+        [None] * len(xyxy_values)
+        if box_ids is None
+        else box_ids.int().cpu().tolist()
+    )
+    for xyxy, confidence, class_value, track_id in zip(
+        xyxy_values, confidence_values, class_values, track_ids
     ):
         x1, y1, x2, y2 = xyxy
         normalized = (
@@ -33,6 +39,7 @@ def result_to_observations(result: Any, width: int, height: int) -> list[TargetO
             TargetObservation(
                 label=str(result.names[class_id]),
                 class_id=class_id,
+                track_id=None if track_id is None else int(track_id),
                 box=BoundingBox(*normalized),
                 detector_confidence=float(confidence),
             )
@@ -49,6 +56,7 @@ class UltralyticsYoloDetector:
         confidence: float = 0.25,
         image_size: int = 640,
         device: str = "cpu",
+        tracker_config: str | Path | None = None,
     ) -> None:
         try:
             from ultralytics import YOLO
@@ -62,6 +70,7 @@ class UltralyticsYoloDetector:
         self.confidence = confidence
         self.image_size = image_size
         self.device = device
+        self.tracker_config = None if tracker_config is None else str(tracker_config)
         self._model = YOLO(self.model_path)
         self.class_names = tuple(str(self._model.names[item]) for item in self.class_ids)
 
@@ -70,12 +79,32 @@ class UltralyticsYoloDetector:
     ) -> Sequence[TargetObservation]:
         del prompts  # Closed-set YOLO uses configured class IDs, not runtime text prompts.
         height, width = frame.shape[:2]
-        result = self._model.predict(
+        arguments = {
+            "source": frame,
+            "classes": list(self.class_ids),
+            "conf": self.confidence,
+            "imgsz": self.image_size,
+            "device": self.device,
+            "verbose": False,
+        }
+        if self.tracker_config is None:
+            result = self._model.predict(**arguments)[0]
+        else:
+            result = self._model.track(
+                **arguments,
+                persist=True,
+                tracker=self.tracker_config,
+            )[0]
+        return result_to_observations(result, width, height)
+
+    def warmup(self, frame: Any) -> None:
+        """Warm model kernels without advancing the stateful tracker."""
+
+        self._model.predict(
             source=frame,
             classes=list(self.class_ids),
             conf=self.confidence,
             imgsz=self.image_size,
             device=self.device,
             verbose=False,
-        )[0]
-        return result_to_observations(result, width, height)
+        )

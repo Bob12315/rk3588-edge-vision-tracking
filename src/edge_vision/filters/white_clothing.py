@@ -99,3 +99,12 @@ class WhiteClothingFilter:
                 )
             )
         return verified
+
+    def warmup(self, frame: Any) -> None:
+        """Delegate model warmup without accidentally advancing tracker state."""
+
+        warmup = getattr(self.detector, "warmup", None)
+        if callable(warmup):
+            warmup(frame)
+        else:
+            self.detector.detect(frame)
