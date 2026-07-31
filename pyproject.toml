@@ -14,12 +14,16 @@ dependencies = []
 edge-vision-demo = "edge_vision.cli:main"
 edge-vision-detect = "edge_vision.video_detection:main"
 edge-vision-runtime = "edge_vision.realtime:main"
+edge-vision-web = "edge_vision.web_ui:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+edge_vision = ["web/*.html", "web/*.css", "web/*.js", "web/*.svg"]
 
 [tool.ruff]
 line-length = 100

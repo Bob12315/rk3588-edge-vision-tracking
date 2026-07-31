@@ -1,4 +1,4 @@
-.PHONY: check demo detect-person detect-person-yolo detect-white-person track-white-person track-white-person-local-vlm run-white-person vlm-install vlm-serve vlm-pull test
+.PHONY: check demo detect-person detect-person-yolo detect-white-person track-white-person track-white-person-local-vlm run-white-person web-ui vlm-install vlm-serve vlm-pull test
 
 VIDEO ?=
 WORLD_OUTPUT_DIR ?= outputs/person_yolo_world
@@ -40,6 +40,9 @@ track-white-person-local-vlm:
 run-white-person:
 	@test -n "$(VIDEO)" || (echo "usage: make run-white-person VIDEO=/path/to/video.mp4" >&2; exit 2)
 	PYTHONPATH=src .venv/bin/python -m edge_vision.realtime "$(VIDEO)" --vlm-provider ollama --vlm-model "$(VLM_MODEL)" --confidence "$(WORLD_CONFIDENCE)" --output-dir "$(RUNTIME_OUTPUT_DIR)"
+
+web-ui:
+	PYTHONPATH=src .venv/bin/python -m edge_vision.web_ui --vlm-model "$(VLM_MODEL)" --open-browser
 
 vlm-install:
 	./scripts/install_local_vlm.sh
