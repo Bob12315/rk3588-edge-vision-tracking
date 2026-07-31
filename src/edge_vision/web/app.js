@@ -170,13 +170,18 @@ function renderPrompts(tracking) {
   }
 }
 
-function renderDetections(tracking) {
+function renderDetections(tracking, phase) {
   const detections = tracking.detections || [];
   elements.detectionBadge.textContent = String(detections.length);
   elements.detectionsList.replaceChildren();
   if (!detections.length) {
     elements.detectionsList.className = "detections-list empty-list";
-    elements.detectionsList.textContent = tracking.active ? "当前帧没有找到目标" : "暂无检测结果";
+    if (phase === "finished" && tracking.seen_track_ids?.length) {
+      const ids = tracking.seen_track_ids.join(", ");
+      elements.detectionsList.textContent = `视频已结束：目标累计出现在 ${tracking.matched_frame_count || 0} 帧，Track ID ${ids}；最后一帧没有目标。`;
+    } else {
+      elements.detectionsList.textContent = tracking.active ? "当前帧没有找到目标" : "暂无检测结果";
+    }
     return;
   }
   elements.detectionsList.className = "detections-list";
@@ -237,7 +242,7 @@ function renderStatus(status) {
   elements.uploadVideo.disabled = disabled || !elements.videoFile.files.length;
   renderAnalysis(status.scene_analysis);
   renderPrompts(tracking);
-  renderDetections(tracking);
+  renderDetections(tracking, status.phase);
   if (status.error) showToast(status.error);
 }
 

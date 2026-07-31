@@ -46,6 +46,21 @@ _CLOTHING_PATTERN = re.compile(
 )
 _CLOTHING_CHARACTERS = ("衣", "服", "裤", "裙", "穿")
 
+_COLOR_AFFINITY: Mapping[str, Mapping[str, float]] = {
+    "white": {"white": 1.0, "gray": 0.20},
+    "black": {"black": 1.0, "gray": 0.15},
+    "gray": {"gray": 1.0, "white": 0.20, "black": 0.15},
+    "red": {"red": 1.0, "orange": 0.10, "pink": 0.10, "brown": 0.10},
+    "orange": {"orange": 1.0, "brown": 0.35, "yellow": 0.10},
+    "yellow": {"yellow": 1.0, "orange": 0.10},
+    "green": {"green": 1.0, "cyan": 0.10},
+    "cyan": {"cyan": 1.0, "blue": 0.15, "green": 0.10},
+    "blue": {"blue": 1.0, "cyan": 0.15, "purple": 0.10},
+    "purple": {"purple": 1.0, "pink": 0.15, "blue": 0.10},
+    "pink": {"pink": 1.0, "purple": 0.15, "red": 0.10},
+    "brown": {"brown": 1.0, "orange": 0.80, "red": 0.15},
+}
+
 
 def normalize_color_name(value: str) -> str | None:
     """Return a supported canonical color found in free-form text."""
@@ -82,6 +97,7 @@ def clothing_color_from_text(value: str) -> str | None:
 class ClothingColorConfig:
     target_color: str
     score_threshold: float = 0.20
+    minimum_detector_confidence: float = 0.10
     minimum_box_height_ratio: float = 0.08
     roi_x_start: float = 0.20
     roi_x_end: float = 0.80
@@ -93,12 +109,19 @@ class ClothingColorConfig:
     temporal_min_samples: int = 3
     stale_after_frames: int = 45
     minimum_dominance_ratio: float = 0.85
+    adaptive_upper_roi: bool = True
+    upper_roi_x_start: float = 0.15
+    upper_roi_x_end: float = 0.85
+    upper_roi_y_start: float = 0.10
+    upper_roi_y_end: float = 0.43
 
     def __post_init__(self) -> None:
         if self.target_color not in SUPPORTED_COLORS:
             raise ValueError(f"unsupported clothing color: {self.target_color}")
         if not 0.0 <= self.score_threshold <= 1.0:
             raise ValueError("score_threshold must be in [0, 1]")
+        if not 0.0 <= self.minimum_detector_confidence <= 1.0:
+            raise ValueError("minimum_detector_confidence must be in [0, 1]")
         if not 0.0 <= self.minimum_box_height_ratio <= 1.0:
             raise ValueError("minimum_box_height_ratio must be in [0, 1]")
         if not 0.0 <= self.roi_x_start < self.roi_x_end <= 1.0:
@@ -117,6 +140,10 @@ class ClothingColorConfig:
             raise ValueError("stale_after_frames must be positive")
         if not 0.0 <= self.minimum_dominance_ratio <= 1.0:
             raise ValueError("minimum_dominance_ratio must be in [0, 1]")
+        if not 0.0 <= self.upper_roi_x_start < self.upper_roi_x_end <= 1.0:
+            raise ValueError("upper horizontal ROI fractions are invalid")
+        if not 0.0 <= self.upper_roi_y_start < self.upper_roi_y_end <= 1.0:
+            raise ValueError("upper vertical ROI fractions are invalid")
 
 
 @dataclass(frozen=True)
@@ -131,6 +158,21 @@ class _TrackColorState:
     scores: dict[str, float]
     samples: int
     last_frame: int
+    confirmations: int = 0
+
+
+def matching_color_score(scores: Mapping[str, float], target_color: str) -> float:
+    """Score a requested semantic color while retaining controlled neighbor affinity."""
+
+    if target_color not in _COLOR_AFFINITY:
+        raise ValueError(f"unsupported clothing color: {target_color}")
+    return min(
+        1.0,
+        sum(
+            float(scores.get(source_color, 0.0)) * weight
+            for source_color, weight in _COLOR_AFFINITY[target_color].items()
+        ),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -192,6 +234,27 @@ def clothing_roi_bounds(
         max(0, y1 + round(config.roi_y_start * box_height)),
         min(width, x1 + round(config.roi_x_end * box_width)),
         min(height, y1 + round(config.roi_y_end * box_height)),
+    )
+
+
+def upper_clothing_roi_bounds(
+    observation: TargetObservation,
+    width: int,
+    height: int,
+    config: ClothingColorConfig,
+) -> tuple[int, int, int, int]:
+    box = observation.box
+    x1 = round(box.x1 * width)
+    y1 = round(box.y1 * height)
+    x2 = round(box.x2 * width)
+    y2 = round(box.y2 * height)
+    box_width = x2 - x1
+    box_height = y2 - y1
+    return (
+        max(0, x1 + round(config.upper_roi_x_start * box_width)),
+        max(0, y1 + round(config.upper_roi_y_start * box_height)),
+        min(width, x1 + round(config.upper_roi_x_end * box_width)),
+        min(height, y1 + round(config.upper_roi_y_end * box_height)),
     )
 
 
@@ -371,27 +434,51 @@ class ClothingColorFilter:
             self._expire_stale_tracks()
             return verified
         for observation in observations:
+            if observation.detector_confidence < self.config.minimum_detector_confidence:
+                continue
             if observation.box.y2 - observation.box.y1 < self.config.minimum_box_height_ratio:
                 continue
-            x1, y1, x2, y2 = clothing_roi_bounds(
-                observation, width, height, self.config
+            bounds = [clothing_roi_bounds(observation, width, height, self.config)]
+            if self.config.adaptive_upper_roi:
+                bounds.append(
+                    upper_clothing_roi_bounds(observation, width, height, self.config)
+                )
+            estimates = []
+            for x1, y1, x2, y2 in bounds:
+                roi = frame[y1:y2, x1:x2]
+                if roi.size == 0:
+                    continue
+                estimates.append(
+                    estimate_clothing_color(
+                        roi,
+                        white_saturation_max=self.config.white_saturation_max,
+                        white_value_min=self.config.white_value_min,
+                    )
+                )
+            if not estimates:
+                continue
+            estimate = max(
+                estimates,
+                key=lambda item: matching_color_score(
+                    item.scores, self.config.target_color
+                ),
             )
-            roi = frame[y1:y2, x1:x2]
-            if roi.size == 0:
-                continue
-            estimate = estimate_clothing_color(
-                roi,
-                white_saturation_max=self.config.white_saturation_max,
-                white_value_min=self.config.white_value_min,
+            scores, state = self._smoothed_scores(observation.track_id, estimate.scores)
+            target_score = matching_color_score(scores, self.config.target_color)
+            dominant_score = max(
+                matching_color_score(scores, color) for color in SUPPORTED_COLORS
             )
-            scores, samples = self._smoothed_scores(observation.track_id, estimate.scores)
-            target_score = scores[self.config.target_color]
-            dominant_score = max(scores.values())
-            if samples < self.config.temporal_min_samples:
-                continue
-            if target_score < self.config.score_threshold:
-                continue
-            if target_score < dominant_score * self.config.minimum_dominance_ratio:
+            color_matches = (
+                target_score >= self.config.score_threshold
+                and target_score
+                >= dominant_score * self.config.minimum_dominance_ratio
+            )
+            if state is not None:
+                state.confirmations = state.confirmations + 1 if color_matches else 0
+                confirmations = state.confirmations
+            else:
+                confirmations = self.config.temporal_min_samples if color_matches else 0
+            if confirmations < self.config.temporal_min_samples:
                 continue
             verified.append(
                 replace(
@@ -407,16 +494,17 @@ class ClothingColorFilter:
 
     def _smoothed_scores(
         self, track_id: int | None, scores: Mapping[str, float]
-    ) -> tuple[dict[str, float], int]:
+    ) -> tuple[dict[str, float], _TrackColorState | None]:
         current = {color: float(scores[color]) for color in SUPPORTED_COLORS}
         if track_id is None:
-            return current, self.config.temporal_min_samples
+            return current, None
         state = self._track_states.get(track_id)
         if state is None:
-            self._track_states[track_id] = _TrackColorState(
+            state = _TrackColorState(
                 current, 1, self._frame_index
             )
-            return current, 1
+            self._track_states[track_id] = state
+            return current, state
         alpha = self.config.temporal_alpha
         state.scores = {
             color: alpha * current[color] + (1.0 - alpha) * state.scores[color]
@@ -424,7 +512,7 @@ class ClothingColorFilter:
         }
         state.samples += 1
         state.last_frame = self._frame_index
-        return dict(state.scores), state.samples
+        return dict(state.scores), state
 
     def _expire_stale_tracks(self) -> None:
         oldest = self._frame_index - self.config.stale_after_frames

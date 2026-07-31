@@ -10,8 +10,10 @@ from edge_vision.contracts import BoundingBox, TargetObservation
 from edge_vision.filters.clothing_color import (
     ClothingColorConfig,
     ClothingColorFilter,
+    SUPPORTED_COLORS,
     clothing_color_from_text,
     estimate_clothing_color,
+    matching_color_score,
     normalize_color_name,
 )
 
@@ -83,11 +85,54 @@ class ClothingColorTests(unittest.TestCase):
         self.assertTrue(matched[0].relation_verified)
         self.assertEqual(len(detector.detect(blue)), 1)
 
+    @unittest.skipIf(np is None, "optional OpenCV/NumPy dependencies are not installed")
+    def test_single_color_flash_on_established_track_is_not_confirmed(self) -> None:
+        observation = TargetObservation(
+            label="person",
+            class_id=0,
+            box=BoundingBox(0.1, 0.1, 0.9, 0.9),
+            detector_confidence=0.9,
+            track_id=9,
+        )
+        detector = ClothingColorFilter(
+            StaticDetector(observation),
+            ClothingColorConfig(
+                target_color="red",
+                minimum_box_height_ratio=0.0,
+                temporal_alpha=1.0,
+                temporal_min_samples=3,
+            ),
+        )
+        blue = np.full((100, 100, 3), (220, 0, 0), dtype=np.uint8)
+        red = np.full((100, 100, 3), (0, 0, 220), dtype=np.uint8)
+        for _ in range(3):
+            self.assertEqual(detector.detect(blue), [])
+        self.assertEqual(detector.detect(red), [])
+        self.assertEqual(detector.detect(red), [])
+        self.assertEqual(len(detector.detect(red)), 1)
+
     def test_rejects_unknown_target_color(self) -> None:
         with self.assertRaises(ValueError):
             ClothingColorConfig(target_color="transparent")
         with self.assertRaises(ValueError):
             ClothingColorConfig(target_color="red", minimum_dominance_ratio=1.1)
+        with self.assertRaises(ValueError):
+            ClothingColorConfig(target_color="red", minimum_detector_confidence=-0.1)
+
+    def test_rust_orange_can_support_brown_without_making_pure_orange_brown(self) -> None:
+        rust = {color: 0.0 for color in SUPPORTED_COLORS}
+        rust.update({"brown": 0.12, "orange": 0.62, "red": 0.08})
+        self.assertGreater(matching_color_score(rust, "brown"), 0.60)
+        self.assertGreaterEqual(
+            matching_color_score(rust, "brown"),
+            0.85 * matching_color_score(rust, "orange"),
+        )
+        pure_orange = dict(rust)
+        pure_orange.update({"brown": 0.0, "orange": 1.0, "red": 0.0})
+        self.assertLess(
+            matching_color_score(pure_orange, "brown"),
+            0.85 * matching_color_score(pure_orange, "orange"),
+        )
 
 
 if __name__ == "__main__":

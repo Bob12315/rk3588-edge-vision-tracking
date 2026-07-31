@@ -194,6 +194,7 @@ class VisionWebSession:
         self._frame_id = 0
         self._detections: list[TargetObservation] = []
         self._seen_track_ids: set[int] = set()
+        self._matched_frame_count = 0
         self._target_query = ""
         self._prompts: tuple[str, ...] = ()
         self._attribute_filter: str | None = None
@@ -275,6 +276,7 @@ class VisionWebSession:
             self._frame_id = 0
             self._detections = []
             self._seen_track_ids.clear()
+            self._matched_frame_count = 0
             self._target_query = ""
             self._prompts = ()
             self._attribute_filter = None
@@ -379,6 +381,7 @@ class VisionWebSession:
                     self._frame_id = 0
                     self._detections = []
                     self._seen_track_ids.clear()
+                    self._matched_frame_count = 0
                     self._target_query = query
                     self._prompts = tuple(prompts)
                     self._attribute_filter = (
@@ -470,6 +473,7 @@ class VisionWebSession:
                     "detection_count": len(detections),
                     "track_ids": track_ids,
                     "seen_track_ids": sorted(self._seen_track_ids),
+                    "matched_frame_count": self._matched_frame_count,
                     "mean_inference_ms": mean_inference,
                     "model_fps": 1000.0 / mean_inference if mean_inference else 0.0,
                     "processing_fps": timestamp_rate(processed_timestamps),
@@ -561,6 +565,8 @@ class VisionWebSession:
                 self._seen_track_ids.update(
                     item.track_id for item in observations if item.track_id is not None
                 )
+                if observations:
+                    self._matched_frame_count += 1
                 if inference_ms:
                     self._inference_ms.append(inference_ms)
                 self._store_frame_locked(frame, display_frame)

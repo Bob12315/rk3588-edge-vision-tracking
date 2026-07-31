@@ -503,6 +503,7 @@ def main() -> None:
             "name": "tracked-clothing-color-filter",
             "target_color": color_config.target_color,
             "score_threshold": color_config.score_threshold,
+            "minimum_detector_confidence": color_config.minimum_detector_confidence,
             "temporal_alpha": color_config.temporal_alpha,
             "temporal_min_samples": color_config.temporal_min_samples,
             "minimum_dominance_ratio": color_config.minimum_dominance_ratio,
@@ -514,6 +515,13 @@ def main() -> None:
                 color_config.roi_y_start,
                 color_config.roi_x_end,
                 color_config.roi_y_end,
+            ],
+            "adaptive_upper_roi": color_config.adaptive_upper_roi,
+            "upper_roi_xy_fractions": [
+                color_config.upper_roi_x_start,
+                color_config.upper_roi_y_start,
+                color_config.upper_roi_x_end,
+                color_config.upper_roi_y_end,
             ],
         }
 
