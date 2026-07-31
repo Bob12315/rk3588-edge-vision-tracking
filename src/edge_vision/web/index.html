@@ -117,6 +117,13 @@
                 <small>推荐用于中文、颜色、衣着或关系描述</small>
               </span>
             </label>
+            <label for="performanceMode">检测性能模式</label>
+            <select id="performanceMode">
+              <option value="realtime">实时 · 384 px（推荐）</option>
+              <option value="balanced">平衡 · 512 px</option>
+              <option value="quality">清晰 · 640 px</option>
+            </select>
+            <p class="hint mode-hint">小目标优先选清晰；普通摄像头预览优先选实时。</p>
             <div id="activePrompts" class="prompt-box">
               <span>YOLO-World 检测词尚未生成</span>
             </div>

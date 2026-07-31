@@ -6,9 +6,11 @@ from edge_vision.contracts import GroundingTask, SceneObject, VlmSceneAnalysis
 from edge_vision.web_ui import (
     WebUiConfig,
     _copy_limited,
+    performance_image_size,
     requires_white_clothing_filter,
     safe_upload_filename,
     split_direct_prompts,
+    timestamp_rate,
 )
 
 
@@ -67,6 +69,18 @@ class WebUiHelperTests(unittest.TestCase):
             WebUiConfig(confidence=1.1)
         with self.assertRaises(ValueError):
             WebUiConfig(jpeg_quality=0)
+
+    def test_performance_modes_have_explicit_model_sizes(self) -> None:
+        self.assertEqual(performance_image_size("realtime"), 384)
+        self.assertEqual(performance_image_size("balanced"), 512)
+        self.assertEqual(performance_image_size("quality"), 640)
+        with self.assertRaises(ValueError):
+            performance_image_size("turbo")
+
+    def test_timestamp_rate_reports_end_to_end_frequency(self) -> None:
+        self.assertEqual(timestamp_rate([]), 0.0)
+        self.assertEqual(timestamp_rate([4.0]), 0.0)
+        self.assertAlmostEqual(timestamp_rate([4.0, 4.1, 4.2]), 10.0)
 
 
 if __name__ == "__main__":

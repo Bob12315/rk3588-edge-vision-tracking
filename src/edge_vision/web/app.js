@@ -16,6 +16,7 @@ const elements = {
   analysisOutput: document.querySelector("#analysisOutput"),
   targetInput: document.querySelector("#targetInput"),
   useVlmGrounding: document.querySelector("#useVlmGrounding"),
+  performanceMode: document.querySelector("#performanceMode"),
   activePrompts: document.querySelector("#activePrompts"),
   startTracking: document.querySelector("#startTracking"),
   stopTracking: document.querySelector("#stopTracking"),
@@ -293,6 +294,7 @@ elements.startTracking.addEventListener("click", async () => {
     const status = await api("/api/tracking/start", jsonOptions({
       target,
       use_vlm_grounding: useVlm,
+      performance_mode: elements.performanceMode.value,
     }));
     renderStatus(status);
   }).catch(() => {});

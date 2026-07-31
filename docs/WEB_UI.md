@@ -77,8 +77,12 @@ VLM 负责理解和生成 grounding 计划，不负责逐帧画框。YOLO-World 
 
 - Qwen3-VL 用英文输出球场多人场景，并列出 `person`、`stadium seat`、`track`、`bottle` 四个可点击目标。
 - 点击 `person` 后没有再次调用 VLM，直接把 `person` 交给 YOLO-World。
-- 57/57 帧处理完成，页面会话累计观察到 24 个 ByteTrack ID。
-- 当前电脑端逐帧处理约 11.37 FPS；不同目标词和视频会有不同速度与召回。
+- 57/57 帧处理完成，实时档页面会话累计观察到 26 个 ByteTrack ID。
+- 原 640 + 低阈值配置约为 9.7–11 FPS；默认实时档的批处理对照约为 20.5 FPS。不同目标词和视频会有不同速度与召回。
+
+网页现提供三档检测尺寸：实时 384、平衡 512、清晰 640。实时档使用折中 ByteTrack 参数；小目标或远距离目标应改选 512/640。详细对照见 [YOLO-World 与 ByteTrack 优化记录](TRACKING_OPTIMIZATION.md)。
+
+网页状态将完整检测、ByteTrack、画框和 JPEG 编码后的速度显示为“处理速度”；纯模型速度单独保留为 API 字段 `model_fps`。当前视频的网页实测分别约为 20.58 FPS 和 25.63 FPS。
 
 ## 运行边界
 

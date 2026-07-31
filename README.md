@@ -135,6 +135,8 @@ make web-ui
 
 默认访问 <http://127.0.0.1:8765/>。网页显示场景摘要、物体列表、检测框、YOLO-World 提示词、track ID、FPS 和延迟；不包含飞控功能。详见[本地网页视觉控制台](docs/WEB_UI.md)。
 
+网页默认使用 384 实时档和折中 ByteTrack 参数，当前视频从约 9.7 FPS 提升到约 20.5 FPS；512/640 档用于更小或更难的目标。参数与轨迹碎片对照见[跟踪优化记录](docs/TRACKING_OPTIMIZATION.md)。
+
 当前测试视频的实测结果见 [YOLO-World 基线](docs/BASELINE_YOLO_WORLD_PERSON.md)和[普通 YOLO11n 对照](docs/BASELINE_PERSON.md)。
 
 在 RK3588 板端执行基础盘点：

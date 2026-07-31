@@ -281,7 +281,7 @@ label {
   font-weight: 620;
 }
 
-input[type="number"], textarea {
+input[type="number"], textarea, select {
   width: 100%;
   color: var(--text);
   border: 1px solid rgba(150, 185, 202, 0.22);
@@ -292,11 +292,14 @@ input[type="number"], textarea {
 
 input[type="number"] { height: 42px; padding: 0 12px; }
 textarea { padding: 11px 12px; resize: vertical; min-height: 76px; line-height: 1.5; }
+select { height: 42px; padding: 0 11px; }
 
-input:focus, textarea:focus {
+input:focus, textarea:focus, select:focus {
   border-color: rgba(69, 223, 211, 0.62);
   box-shadow: 0 0 0 3px rgba(69, 223, 211, 0.08);
 }
+
+.mode-hint { margin-top: 7px; margin-bottom: 11px; }
 
 .source-tabs {
   display: grid;

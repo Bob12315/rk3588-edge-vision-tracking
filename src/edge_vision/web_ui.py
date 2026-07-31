@@ -29,6 +29,11 @@ SCENE_INSTRUCTION = (
     "YOLO-World bounding boxes."
 )
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
+PERFORMANCE_IMAGE_SIZES = {
+    "realtime": 384,
+    "balanced": 512,
+    "quality": 640,
+}
 
 
 def split_direct_prompts(value: str) -> tuple[str, ...]:
@@ -71,13 +76,28 @@ def requires_white_clothing_filter(analysis: VlmSceneAnalysis | None) -> bool:
     return white and clothing
 
 
+def performance_image_size(mode: str) -> int:
+    try:
+        return PERFORMANCE_IMAGE_SIZES[mode]
+    except KeyError as exc:
+        choices = ", ".join(PERFORMANCE_IMAGE_SIZES)
+        raise ValueError(f"未知性能模式，可选：{choices}") from exc
+
+
+def timestamp_rate(timestamps: Sequence[float]) -> float:
+    if len(timestamps) < 2:
+        return 0.0
+    elapsed = timestamps[-1] - timestamps[0]
+    return (len(timestamps) - 1) / elapsed if elapsed > 0.0 else 0.0
+
+
 @dataclass(frozen=True)
 class WebUiConfig:
     model: str = "yolov8s-worldv2.pt"
     confidence: float = 0.05
-    image_size: int = 640
+    image_size: int = 384
     device: str = "cpu"
-    tracker_config: str = "configs/bytetrack.yaml"
+    tracker_config: str = "configs/bytetrack_balanced.yaml"
     white_ratio_threshold: float = 0.20
     white_saturation_max: int = 60
     white_value_min: int = 145
@@ -93,7 +113,7 @@ class WebUiConfig:
             raise ValueError("jpeg_quality must be in [1, 100]")
 
 
-DetectorFactory = Callable[[Sequence[str], bool], tuple[Any, Any]]
+DetectorFactory = Callable[[Sequence[str], bool, int], tuple[Any, Any]]
 
 
 class VisionWebSession:
@@ -139,12 +159,15 @@ class VisionWebSession:
         self._target_query = ""
         self._prompts: tuple[str, ...] = ()
         self._attribute_filter: str | None = None
+        self._performance_mode = "realtime"
+        self._active_image_size = config.image_size
         self._scene_analysis: Mapping[str, Any] | None = None
         self._grounding_analysis: Mapping[str, Any] | None = None
         self._vlm_metrics: Mapping[str, Any] = {}
         self._vlm_busy = False
         self._detector_loading = False
         self._inference_ms: deque[float] = deque(maxlen=60)
+        self._processed_timestamps: deque[float] = deque(maxlen=60)
         self._read_failures = 0
         self._worker = threading.Thread(
             target=self._capture_loop,
@@ -160,6 +183,7 @@ class VisionWebSession:
         if not capture.isOpened():
             capture.release()
             raise RuntimeError(f"无法打开 USB 摄像头 {index}")
+        capture.set(self._cv2.CAP_PROP_BUFFERSIZE, 1)
         ok, frame = capture.read()
         if not ok:
             capture.release()
@@ -215,10 +239,13 @@ class VisionWebSession:
             self._target_query = ""
             self._prompts = ()
             self._attribute_filter = None
+            self._performance_mode = "realtime"
+            self._active_image_size = self.config.image_size
             self._grounding_analysis = None
             self._scene_analysis = None
             self._vlm_metrics = {}
             self._inference_ms.clear()
+            self._processed_timestamps.clear()
             self._read_failures = 0
             self._store_frame_locked(first_frame, first_frame)
 
@@ -246,13 +273,18 @@ class VisionWebSession:
                     self._vlm_busy = False
 
     def start_tracking(
-        self, target_query: str, *, use_vlm_grounding: bool = True
+        self,
+        target_query: str,
+        *,
+        use_vlm_grounding: bool = True,
+        performance_mode: str = "realtime",
     ) -> Mapping[str, Any]:
         query = target_query.strip()
         if not query:
             raise ValueError("请输入要识别和跟踪的目标")
         if len(query) > 500:
             raise ValueError("目标描述不能超过 500 个字符")
+        image_size = performance_image_size(performance_mode)
         frame = self._frame_snapshot()
 
         with self._operation_lock:
@@ -284,7 +316,9 @@ class VisionWebSession:
                     prompts = split_direct_prompts(query)
 
                 white_filter = requires_white_clothing_filter(grounding_analysis)
-                detector, base_detector = self._detector_factory(prompts, white_filter)
+                detector, base_detector = self._detector_factory(
+                    prompts, white_filter, image_size
+                )
                 warmup = getattr(detector, "warmup", None)
                 if callable(warmup):
                     warmup(frame)
@@ -307,6 +341,8 @@ class VisionWebSession:
                     self._attribute_filter = (
                         "white-clothing-torso-hsv" if white_filter else None
                     )
+                    self._performance_mode = performance_mode
+                    self._active_image_size = image_size
                     self._grounding_analysis = (
                         scene_analysis_to_mapping(grounding_analysis)
                         if grounding_analysis is not None
@@ -317,6 +353,7 @@ class VisionWebSession:
                             getattr(self.vlm, "last_metrics", {})
                         )
                     self._inference_ms.clear()
+                    self._processed_timestamps.clear()
                     self._read_failures = 0
                 return self.status()
             except Exception as exc:
@@ -344,6 +381,7 @@ class VisionWebSession:
                 for item in self._detections
             ]
             inference_values = list(self._inference_ms)
+            processed_timestamps = list(self._processed_timestamps)
             mean_inference = (
                 sum(inference_values) / len(inference_values)
                 if inference_values
@@ -378,13 +416,16 @@ class VisionWebSession:
                     "target_query": self._target_query,
                     "prompts": list(self._prompts),
                     "attribute_filter": self._attribute_filter,
+                    "performance_mode": self._performance_mode,
+                    "image_size": self._active_image_size,
                     "frame_id": self._frame_id,
                     "detections": detections,
                     "detection_count": len(detections),
                     "track_ids": track_ids,
                     "seen_track_ids": sorted(self._seen_track_ids),
                     "mean_inference_ms": mean_inference,
-                    "processing_fps": 1000.0 / mean_inference if mean_inference else 0.0,
+                    "model_fps": 1000.0 / mean_inference if mean_inference else 0.0,
+                    "processing_fps": timestamp_rate(processed_timestamps),
                 },
             }
 
@@ -476,6 +517,8 @@ class VisionWebSession:
                 if inference_ms:
                     self._inference_ms.append(inference_ms)
                 self._store_frame_locked(frame, display_frame)
+                if inference_ms:
+                    self._processed_timestamps.append(time.perf_counter())
             self._stop_event.wait(0.003)
 
     def _store_frame_locked(self, raw_frame: Any, display_frame: Any) -> None:
@@ -493,7 +536,7 @@ class VisionWebSession:
             self._error = message
 
     def _build_detector(
-        self, prompts: Sequence[str], white_filter: bool
+        self, prompts: Sequence[str], white_filter: bool, image_size: int
     ) -> tuple[Any, Any]:
         from .adapters.ultralytics_yolo_world import UltralyticsYoloWorldDetector
 
@@ -501,7 +544,7 @@ class VisionWebSession:
             self.config.model,
             prompts=prompts,
             confidence=self.config.confidence,
-            image_size=self.config.image_size,
+            image_size=image_size,
             device=self.config.device,
             tracker_config=self.config.tracker_config,
         )
@@ -642,8 +685,15 @@ def build_handler(
                     payload = self._read_json()
                     target = str(payload.get("target", ""))
                     use_vlm = bool(payload.get("use_vlm_grounding", True))
+                    performance_mode = str(
+                        payload.get("performance_mode", "realtime")
+                    )
                     self._send_json(
-                        session.start_tracking(target, use_vlm_grounding=use_vlm)
+                        session.start_tracking(
+                            target,
+                            use_vlm_grounding=use_vlm,
+                            performance_mode=performance_mode,
+                        )
                     )
                     return
                 if path == "/api/tracking/stop":
@@ -777,9 +827,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--open-browser", action="store_true")
     parser.add_argument("--model", default="yolov8s-worldv2.pt")
     parser.add_argument("--confidence", type=float, default=0.05)
-    parser.add_argument("--image-size", type=int, default=640)
     parser.add_argument("--device", default="cpu")
-    parser.add_argument("--tracker-config", default="configs/bytetrack.yaml")
+    parser.add_argument(
+        "--tracker-config", default="configs/bytetrack_balanced.yaml"
+    )
     parser.add_argument("--vlm-model", default="qwen3-vl:2b")
     parser.add_argument("--vlm-base-url", default="http://127.0.0.1:11434")
     parser.add_argument("--vlm-timeout-seconds", type=float, default=60.0)
@@ -810,7 +861,6 @@ def main() -> None:
         WebUiConfig(
             model=args.model,
             confidence=args.confidence,
-            image_size=args.image_size,
             device=args.device,
             tracker_config=tracker_config,
         ),
