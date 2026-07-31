@@ -25,4 +25,7 @@ class MissionPipeline:
             requested_action=transition.action,
             safe_action=safe.action,
             reason=reason,
+            transition_reason=transition.reason,
+            safety_reason=safe.reason,
+            safety_overridden=safe.overridden,
         )

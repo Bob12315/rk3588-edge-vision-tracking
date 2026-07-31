@@ -5,7 +5,7 @@ from edge_vision.contracts import BoundingBox, MissionState, PerceptionSnapshot,
 from edge_vision.state_machine import TrackingStateMachine
 
 
-def snapshot(frame_id: int, detector: float, tracker=None, verified=True):
+def snapshot(frame_id: int, detector: float, tracker=None, verified=True, track_id=None):
     return PerceptionSnapshot(
         frame_id=frame_id,
         timestamp_s=frame_id / 10,
@@ -15,6 +15,7 @@ def snapshot(frame_id: int, detector: float, tracker=None, verified=True):
             detector_confidence=detector,
             tracker_confidence=tracker,
             relation_verified=verified,
+            track_id=track_id,
         ),
     )
 
@@ -42,6 +43,25 @@ class TrackingStateMachineTests(unittest.TestCase):
         self.machine.step(empty)
         self.assertEqual(self.machine.step(empty).state, MissionState.LOST)
         self.assertEqual(self.machine.step(snapshot(4, 0.9)).state, MissionState.LOCK)
+
+    def test_bytetrack_id_uses_detector_score_as_health_signal(self) -> None:
+        self.machine.step(snapshot(0, 0.9))
+        self.machine.step(snapshot(1, 0.9))
+        self.assertEqual(
+            self.machine.step(snapshot(2, 0.9, track_id=17)).state,
+            MissionState.TRACK,
+        )
+        transition = self.machine.step(snapshot(3, 0.8, track_id=17))
+        self.assertEqual(transition.state, MissionState.TRACK)
+        self.assertIn("track ID", transition.reason)
+
+    def test_untracked_detection_is_not_healthy_in_track_state(self) -> None:
+        self.machine.step(snapshot(0, 0.9))
+        self.machine.step(snapshot(1, 0.9))
+        self.machine.step(snapshot(2, 0.9, track_id=17))
+        self.machine.step(snapshot(3, 0.9))
+        self.machine.step(snapshot(4, 0.9))
+        self.assertEqual(self.machine.step(snapshot(5, 0.9)).state, MissionState.LOST)
 
 
 if __name__ == "__main__":

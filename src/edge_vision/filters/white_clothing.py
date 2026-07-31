@@ -96,6 +96,7 @@ class WhiteClothingFilter:
                     observation,
                     label=self.class_names[0],
                     color_confidence=white_ratio,
+                    relation_verified=True,
                 )
             )
         return verified

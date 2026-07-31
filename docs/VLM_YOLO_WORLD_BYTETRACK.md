@@ -62,3 +62,5 @@ make track-white-person \
 - 完整输出位于 `outputs/white_clothes_local_vlm_yolo_world_bytetrack/`。
 
 VLM 只在任务开始、多候选消歧或丢失重捕获时运行，不占用每帧实时链路。RK3588 迁移细节见 [本地 VLM 与 RK3588 NPU](LOCAL_VLM_RK3588.md)。
+
+统一运行入口已进一步接上持久单目标选择、任务状态机和安全仲裁，见[统一视觉任务主程序](UNIFIED_RUNTIME.md)。

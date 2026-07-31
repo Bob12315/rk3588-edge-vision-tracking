@@ -1,6 +1,6 @@
 # RK3588 边缘机载视觉
 
-面向无人机的目标搜索、锁定、持续跟踪与丢失重捕获项目。当前仓库先建立可测试的控制骨架，把感知模型、任务状态机、安全仲裁和飞控边界分开；YOLO-World、普通 YOLO 和 ByteTrack 已完成电脑端视频接入，RKNN 与 MAVLink 适配器将在后续阶段逐项加入。
+面向无人机的目标搜索、锁定、持续跟踪与丢失重捕获项目。电脑端已打通本地 VLM、YOLO-World、白衣属性复核、ByteTrack、单目标选择、任务状态机和安全仲裁的统一主循环；RKNN 与 MAVLink 适配器将在后续阶段逐项加入。
 
 原始方案见 [RK3588_VLM_YOLO_Tracking_Summary.docx](RK3588_VLM_YOLO_Tracking_Summary.docx)。工程化解读和边界见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -19,7 +19,9 @@
 - 模型无关的数据契约与可替换适配器接口。
 - YOLO-World 运行时文本提示，以及普通 YOLO 对照基线。
 - ByteTrack 多目标 ID、逐帧 JSONL 记录和轨迹统计。
+- 持久单目标选择，以及 `SEARCH → LOCK → TRACK → LOST → HOLD` 实时编排。
 - 与供应商无关的 VLM 结构化输出契约及离线回放入口。
+- 文件、摄像头索引和 RTSP/HTTP 视频源的统一运行入口。
 - 无第三方依赖的模拟回放 CLI 和单元测试。
 - RK3588 环境检查、数据采集清单和分阶段实施计划。
 
@@ -108,6 +110,18 @@ make track-white-person-local-vlm VIDEO=/absolute/path/to/input.mp4
 
 Ollama 运行时和 1.9 GB 量化模型都存在 `artifacts/` 中并被 Git 忽略；服务只监听 `127.0.0.1`、关闭云功能、单模型单并发。完整链路与实测见 [VLM → YOLO-World → ByteTrack](docs/VLM_YOLO_WORLD_BYTETRACK.md)，RK3588 NPU 部署路径见 [本地 VLM 与 RK3588 NPU](docs/LOCAL_VLM_RK3588.md)。
 
+运行包含目标选择、状态机和安全仲裁的统一主程序：
+
+```bash
+# 终端 1
+make vlm-serve
+# 终端 2
+make run-white-person \
+  VIDEO=/home/level6/视频/37abaa4512176295e7462a589a64674a.mp4
+```
+
+统一程序也接受摄像头索引 `0` 或 RTSP 地址，输出带框视频、逐帧事件和状态变化摘要。使用说明、实测和当前安全边界见[统一视觉任务主程序](docs/UNIFIED_RUNTIME.md)。
+
 当前测试视频的实测结果见 [YOLO-World 基线](docs/BASELINE_YOLO_WORLD_PERSON.md)和[普通 YOLO11n 对照](docs/BASELINE_PERSON.md)。
 
 在 RK3588 板端执行基础盘点：
@@ -130,7 +144,7 @@ scripts/                 环境检查脚本
 
 ## 接下来的里程碑
 
-1. 用更多录制视频验证 YOLO-World 与 YOLO11n 人物检测，补充人工标注并计算精度。
+1. 为实时摄像头增加只保留最新帧的有界队列、视频冻结和模型超时检测。
 2. 用专用长视频测试 ByteTrack 的遮挡、交叉、离画重捕获和 ID 切换率。
 3. 采集实际相机、飞行高度和场地光照数据，训练固定类别 YOLO，并加入框内 HSV 颜色复核。
 4. 转换 RKNN，在 RK3588 上测量预处理、NPU 推理、后处理和端到端 FPS。

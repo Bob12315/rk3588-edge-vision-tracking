@@ -19,6 +19,9 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertEqual(decision.requested_action, Action.SEARCH)
         self.assertEqual(decision.safe_action, Action.HOLD)
+        self.assertTrue(decision.safety_overridden)
+        self.assertIn("no candidate", decision.transition_reason)
+        self.assertIn("operator hold", decision.safety_reason)
 
 
 if __name__ == "__main__":

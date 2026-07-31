@@ -81,14 +81,14 @@ class TrackingStateMachine:
         return self._result(Action.LOCK, "collecting consecutive lock confirmations")
 
     def _track(self, target: TargetObservation | None) -> Transition:
-        tracker_ok = (
-            target is not None
-            and target.tracker_confidence is not None
-            and target.tracker_confidence >= self.config.tracker_threshold
-        )
+        tracker_ok = self._tracking_healthy(target)
         if tracker_ok:
             self._track_misses = 0
-            return self._result(Action.TRACK, "tracker confidence healthy")
+            if target is not None and target.tracker_confidence is not None:
+                reason = "tracker confidence healthy"
+            else:
+                reason = "active track ID and detector score healthy"
+            return self._result(Action.TRACK, reason)
 
         self._track_misses += 1
         if self._track_misses >= self.config.track_miss_limit:
@@ -112,6 +112,21 @@ class TrackingStateMachine:
 
     def _detectable(self, target: TargetObservation | None) -> bool:
         return target is not None and target.detector_confidence >= self.config.detection_threshold
+
+    def _tracking_healthy(self, target: TargetObservation | None) -> bool:
+        """Accept native tracker confidence or tracking-by-detection evidence.
+
+        ByteTrack exposes an association ID but no independent per-track confidence.
+        In that case, a present track ID plus a current detector score is the honest
+        health signal; tracker_threshold remains reserved for adapters that do expose
+        a native tracker confidence.
+        """
+
+        if target is None:
+            return False
+        if target.tracker_confidence is not None:
+            return target.tracker_confidence >= self.config.tracker_threshold
+        return target.track_id is not None and self._detectable(target)
 
     def _result(self, action: Action, reason: str) -> Transition:
         return Transition(state=self.state, action=action, reason=reason)

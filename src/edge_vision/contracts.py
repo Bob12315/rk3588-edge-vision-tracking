@@ -135,6 +135,9 @@ class Decision:
     requested_action: Action
     safe_action: Action
     reason: str
+    transition_reason: str = ""
+    safety_reason: str = ""
+    safety_overridden: bool = False
 
 
 class Detector(Protocol):

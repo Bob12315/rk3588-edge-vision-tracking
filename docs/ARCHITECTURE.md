@@ -5,9 +5,9 @@
 系统接受自然语言或预定义任务目标，完成搜索、候选确认、持续跟踪、周期重检、丢失重捕获，并只向 PX4/ArduPilot 输出经过安全审查的高级动作。
 
 ```text
-Camera ──> Detector / YOLO-World ──> target candidates ─┐
-Camera ──> Tracker ─────────────────> target update ───┤
-Keyframe ─> small VLM ──────────────> semantic check ──┤
+Camera ──> YOLO-World + ByteTrack ──> target candidates ┐
+Keyframe ─> small VLM ──────────────> task grounding ───┤
+Candidates -> attribute check -> persistent selector ───┤
 GPS / IMU / battery / range ────────> telemetry ───────┤
                                                        v
                                       World-state snapshot
@@ -52,6 +52,8 @@ GPS / IMU / battery / range ────────> telemetry ─────�
 - `frame_id`、单调时间戳
 
 统一契约能让电脑端 ONNX/模拟适配器与板端 RKNN 适配器互换，而不改状态机。
+
+ByteTrack 提供 `track_id`，但不提供独立的逐轨迹置信度；本项目用“当前 ID 存在且当前检测分数合格”作为 tracking-by-detection 健康信号，并保留 `tracker_confidence` 给真正输出该量的跟踪器。
 
 ## 状态机
 

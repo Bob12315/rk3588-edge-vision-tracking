@@ -13,6 +13,7 @@ dependencies = []
 [project.scripts]
 edge-vision-demo = "edge_vision.cli:main"
 edge-vision-detect = "edge_vision.video_detection:main"
+edge-vision-runtime = "edge_vision.realtime:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
