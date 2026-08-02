@@ -14,6 +14,12 @@ from typing import Any, Mapping, Protocol, Sequence
 from .contracts import TargetObservation
 
 
+DEFAULT_TRACKER_CONFIGS = {
+    "bytetrack": "configs/bytetrack.yaml",
+    "botsort": "configs/botsort_reid.yaml",
+}
+
+
 class FrameDetector(Protocol):
     def detect(self, frame: Any, prompts: Sequence[str] = ()) -> Sequence[TargetObservation]: ...
 
@@ -50,6 +56,33 @@ def resolve_backend_defaults(
     if backend == "yolo":
         return model or "yolo11n.pt", 0.25 if confidence is None else confidence
     raise ValueError(f"unsupported backend: {backend}")
+
+
+def resolve_tracker_settings(
+    tracker: str, tracker_config: str | None
+) -> tuple[str | None, str | None]:
+    """Resolve a tracker profile and report its actual configured tracker type."""
+
+    if tracker == "none":
+        return None, None
+    if tracker not in DEFAULT_TRACKER_CONFIGS:
+        choices = ", ".join(("none", *DEFAULT_TRACKER_CONFIGS))
+        raise ValueError(f"unsupported tracker: {tracker}; choose from {choices}")
+
+    configured = tracker_config or DEFAULT_TRACKER_CONFIGS[tracker]
+    configured_path = Path(configured).expanduser()
+    resolved = str(configured_path.resolve()) if configured_path.is_file() else configured
+    actual_type = tracker
+    if configured_path.is_file():
+        for raw_line in configured_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.split("#", 1)[0].strip()
+            if not line.startswith("tracker_type:"):
+                continue
+            candidate = line.split(":", 1)[1].strip().casefold()
+            if candidate in DEFAULT_TRACKER_CONFIGS:
+                actual_type = candidate
+            break
+    return actual_type, resolved
 
 
 def percentile(values: Sequence[float], fraction: float) -> float:
@@ -352,8 +385,13 @@ def main() -> None:
     parser.add_argument("--confidence", type=float)
     parser.add_argument("--prompts", nargs="+", default=["person"])
     parser.add_argument("--class-ids", nargs="+", type=int, default=[0])
-    parser.add_argument("--tracker", choices=("none", "bytetrack"), default="none")
-    parser.add_argument("--tracker-config", default="configs/bytetrack.yaml")
+    parser.add_argument(
+        "--tracker", choices=("none", "bytetrack", "botsort"), default="none"
+    )
+    parser.add_argument(
+        "--tracker-config",
+        help="Ultralytics tracker YAML; defaults according to --tracker",
+    )
     vlm_source = parser.add_mutually_exclusive_group()
     vlm_source.add_argument(
         "--vlm-plan",
@@ -437,15 +475,9 @@ def main() -> None:
             "performance": dict(vlm.last_metrics),
         }
 
-    tracker_name = None if args.tracker == "none" else args.tracker
-    tracker_config = None
-    if tracker_name is not None:
-        configured_path = Path(args.tracker_config).expanduser()
-        tracker_config = (
-            str(configured_path.resolve())
-            if configured_path.is_file()
-            else args.tracker_config
-        )
+    tracker_name, tracker_config = resolve_tracker_settings(
+        args.tracker, args.tracker_config
+    )
 
     model, confidence = resolve_backend_defaults(args.backend, args.model, args.confidence)
     if args.output_dir is None:

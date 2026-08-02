@@ -70,7 +70,8 @@ fuse_score: true
 
 1. 采集带人物身份标注的遮挡、交叉和离画重入视频，计算 IDF1、HOTA、ID switches，而不是只看框是否存在。
 2. USB/RTSP 使用独立采集线程和单元素最新帧队列，避免驱动不支持 `CAP_PROP_BUFFERSIZE` 时积压旧帧。
-3. 网页已加入可选 BoT-SORT + ReID，当前视频约 19–20 FPS，相比指定人物
-   ByteTrack 实测约低 25%。下一步不是继续看主观画面，而是用有身份真值的
+3. 网页已加入可选 BoT-SORT + ReID。800 帧同参数批处理为 18.07 FPS，
+   ByteTrack 为 25.46 FPS；两者主轨迹均持续 800 帧，尚无 ReID 收益证据。下一步不是
+   继续看主观画面，而是用有身份真值的
    遮挡/交叉数据比较 IDF1、HOTA 和 ID switches。详见[身份增强跟踪](IDENTITY_TRACKING.md)。
 4. 若最终只追一个用户选中的实例，可用 YOLO-World 周期重检 + 轻量单目标 tracker，换取更高帧率；这不是 ByteTrack 参数调整，而是管线模式变化。

@@ -6,6 +6,7 @@ from edge_vision.video_detection import (
     observation_to_mapping,
     percentile,
     resolve_backend_defaults,
+    resolve_tracker_settings,
 )
 
 
@@ -19,6 +20,17 @@ class VideoDetectionUtilityTests(unittest.TestCase):
         model, confidence = resolve_backend_defaults("yolo", "custom.pt", 0.4)
         self.assertEqual(model, "custom.pt")
         self.assertEqual(confidence, 0.4)
+
+    def test_tracker_defaults_and_actual_yaml_type_are_reported(self) -> None:
+        tracker, config = resolve_tracker_settings("botsort", None)
+        self.assertEqual(tracker, "botsort")
+        self.assertTrue(config.endswith("configs/botsort_reid.yaml"))
+        tracker, config = resolve_tracker_settings(
+            "bytetrack", "configs/botsort_reid.yaml"
+        )
+        self.assertEqual(tracker, "botsort")
+        self.assertTrue(config.endswith("configs/botsort_reid.yaml"))
+        self.assertEqual(resolve_tracker_settings("none", None), (None, None))
 
     def test_percentile_interpolates(self) -> None:
         self.assertEqual(percentile([10.0, 20.0, 30.0], 0.5), 20.0)

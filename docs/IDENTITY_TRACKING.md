@@ -55,7 +55,13 @@ PYTHONPATH=src .venv/bin/python -m edge_vision.web_ui \
 - 同视频 ByteTrack 的完整指定人物流程约 26.8 FPS；因此 ReID 当前代价约为
   25% 的帧率。
 
-这证明模式、人物卡片和不误切换链路可运行，不等于 ReID 精度已通过。该视频
+严格同参数的前 800 帧批处理对照中，ByteTrack 为 25.46 FPS，ReID 为 18.07 FPS，
+即慢约 29%。两者的主目标都保持同一 ID 800 帧；ReID 没有在这段无真值视频上
+证明身份收益，还多出 4 条 1–3 帧的低置信短轨迹。完整对照见
+[跟踪身份评测](TRACKING_EVALUATION.md)。
+
+这证明模式、人物卡片和不误切换链路可运行，不等于 ReID 精度已通过，也不支持
+将 ReID 设为默认。该视频
 没有逐帧身份真值，还需专用遮挡、交叉、离画重入数据集计算 IDF1、HOTA 和
 ID switches。
 

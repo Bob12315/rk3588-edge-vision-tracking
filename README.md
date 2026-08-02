@@ -19,6 +19,7 @@
 - 模型无关的数据契约与可替换适配器接口。
 - YOLO-World 运行时文本提示，以及普通 YOLO 对照基线。
 - ByteTrack 默认实时跟踪、可选 BoT-SORT + ReID 身份增强、逐帧 JSONL 记录和轨迹统计。
+- ByteTrack/ReID 同参数对照、MOTChallenge 导出和带真值的 IDF1/MOTA/ID-switch 快速评测。
 - 逐人物稳定轨迹扫描、受控 VLM 属性卡片和指定 Track ID 锁定。
 - 持久单目标选择，以及 `SEARCH → LOCK → TRACK → LOST → HOLD` 实时编排。
 - 与供应商无关的 VLM 结构化输出契约及离线回放入口。
@@ -143,8 +144,10 @@ make web-ui
 [逐人物属性目录](docs/PERSON_CATALOG.md)。
 
 跟踪模式默认使用 ByteTrack；多人交叉或短时遮挡场景可选 BoT-SORT + ReID。
-当前 CPU 实测约 19–20 FPS，比 ByteTrack 的指定人物流程低约 25%；详见
+当前 CPU 实测约 18–20 FPS，比 ByteTrack 低约 25%–29%；详见
 [身份增强跟踪与 RK3588 路径](docs/IDENTITY_TRACKING.md)。
+可用 `make benchmark-trackers VIDEO=/absolute/path/to/video.mp4` 生成双模式对照，评测
+方法和当前 800 帧结果见[跟踪身份评测](docs/TRACKING_EVALUATION.md)。
 
 衣服颜色任务会把描述拆成 `person` 检测和独立颜色复核，支持 12 个标准颜色，并按 ByteTrack ID 做三帧时序稳定；当前视频加入颜色复核后约为 19 FPS。实现、实测与限制见[衣服颜色识别与跟踪](docs/CLOTHING_COLOR_TRACKING.md)。
 
@@ -171,7 +174,8 @@ scripts/                 环境检查脚本
 ## 接下来的里程碑
 
 1. 为实时摄像头增加只保留最新帧的有界队列、视频冻结和模型超时检测。
-2. 用带逐帧身份真值的长视频比较 ByteTrack 与 BoT-SORT + ReID 的 IDF1、HOTA 和 ID 切换率。
+2. 标注遮挡、交叉和离画重入片段，用已实现的评测工具比较 ByteTrack 与
+   BoT-SORT + ReID 的 IDF1、HOTA 和 ID 切换率。
 3. 采集实际相机、飞行高度和场地光照数据，训练固定类别 YOLO，并加入框内 HSV 颜色复核。
 4. 转换 RKNN，在 RK3588 上测量预处理、NPU 推理、后处理和端到端 FPS。
 5. 接入 MAVLink 高级动作前，先完成 SITL、录制回放和安全故障注入。
