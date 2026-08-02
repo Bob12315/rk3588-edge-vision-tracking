@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Identity Ground Truth</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/annotation.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">RK3588 EDGE VISION · DATASET TOOL</p>
+        <h1>Identity Ground Truth</h1>
+      </div>
+      <div class="save-state">
+        <span id="saveDot" class="save-dot"></span>
+        <strong id="saveLabel">Loading</strong>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="viewer-panel">
+        <div class="viewer-header">
+          <div>
+            <strong id="videoName">Video</strong>
+            <span id="videoMeta">—</span>
+          </div>
+          <div class="legend">
+            <span><i class="legend-box annotation"></i>Reviewed GT</span>
+            <span><i class="legend-box suggestion"></i>Model suggestion</span>
+          </div>
+        </div>
+        <div id="canvasStage" class="canvas-stage">
+          <canvas id="annotationCanvas"></canvas>
+          <div id="loadingFrame" class="loading-frame">Loading frame…</div>
+        </div>
+        <div class="timeline">
+          <button id="previousFrame" type="button">← PREV</button>
+          <input id="frameSlider" type="range" min="1" value="1">
+          <label for="frameNumber">FRAME</label>
+          <input id="frameNumber" type="number" min="1" value="1">
+          <span id="frameTotal">/ —</span>
+          <button id="nextFrame" type="button">NEXT →</button>
+          <button id="nextUnreviewed" class="secondary" type="button">NEXT UNREVIEWED</button>
+        </div>
+      </section>
+
+      <aside class="tools-panel">
+        <section class="card progress-card">
+          <p class="eyebrow">PROGRESS</p>
+          <div class="progress-numbers">
+            <strong id="reviewedCount">0</strong>
+            <span>reviewed frames</span>
+          </div>
+          <div class="progress-track"><i id="progressBar"></i></div>
+          <p id="annotationCount" class="muted">0 ground-truth boxes</p>
+        </section>
+
+        <section class="card warning-card">
+          <strong>Suggestions are not ground truth</strong>
+          <p>Dashed boxes come from ByteTrack. They enter <code>gt.txt</code> only after you review and save this frame.</p>
+        </section>
+
+        <section class="card editor-card">
+          <p class="eyebrow">SELECTED BOX</p>
+          <label for="identityInput">Person identity ID</label>
+          <input id="identityInput" type="number" min="1" value="1">
+          <label for="visibilityInput">Visibility <span id="visibilityValue">1.00</span></label>
+          <input id="visibilityInput" type="range" min="0" max="1" step="0.05" value="1">
+          <div class="button-grid">
+            <button id="applyIdentity" type="button">APPLY</button>
+            <button id="deleteBox" class="danger" type="button">DELETE BOX</button>
+          </div>
+          <p class="muted">Drag on the image to create a new box using the current identity ID.</p>
+        </section>
+
+        <section class="card frame-card">
+          <div class="frame-state-row">
+            <p class="eyebrow">CURRENT FRAME</p>
+            <span id="reviewBadge" class="badge">UNREVIEWED</span>
+          </div>
+          <div class="button-stack">
+            <button id="acceptSuggestions" type="button">USE MODEL SUGGESTIONS</button>
+            <button id="clearBoxes" class="secondary" type="button">CLEAR ALL BOXES</button>
+            <button id="saveFrame" class="accent" type="button">SAVE AS REVIEWED</button>
+          </div>
+          <div id="boxList" class="box-list"></div>
+        </section>
+
+        <section class="card shortcuts-card">
+          <p class="eyebrow">SHORTCUTS</p>
+          <p><kbd>←</kbd>/<kbd>→</kbd> navigate · <kbd>Ctrl</kbd>+<kbd>S</kbd> save · <kbd>Del</kbd> delete selected</p>
+          <p id="outputPath" class="output-path"></p>
+        </section>
+      </aside>
+    </main>
+
+    <div id="toast" class="toast" role="alert"></div>
+    <script src="/annotation.js"></script>
+  </body>
+</html>

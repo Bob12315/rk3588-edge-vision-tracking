@@ -20,6 +20,7 @@
 - YOLO-World 运行时文本提示，以及普通 YOLO 对照基线。
 - ByteTrack 默认实时跟踪、可选 BoT-SORT + ReID 身份增强、逐帧 JSONL 记录和轨迹统计。
 - ByteTrack/ReID 同参数对照、MOTChallenge 导出和带真值的 IDF1/MOTA/ID-switch 快速评测。
+- 本地 Canvas 人物身份标注台，严格区分模型建议与已审核 MOT 真值。
 - 逐人物稳定轨迹扫描、受控 VLM 属性卡片和指定 Track ID 锁定。
 - 持久单目标选择，以及 `SEARCH → LOCK → TRACK → LOST → HOLD` 实时编排。
 - 与供应商无关的 VLM 结构化输出契约及离线回放入口。
@@ -148,6 +149,16 @@ make web-ui
 [身份增强跟踪与 RK3588 路径](docs/IDENTITY_TRACKING.md)。
 可用 `make benchmark-trackers VIDEO=/absolute/path/to/video.mp4` 生成双模式对照，评测
 方法和当前 800 帧结果见[跟踪身份评测](docs/TRACKING_EVALUATION.md)。
+
+建立身份真值可以运行：
+
+```bash
+make annotate-identities \
+  VIDEO=/absolute/path/to/video.mp4 \
+  IDENTITY_PREDICTIONS=outputs/tracker_comparison/bytetrack/detections.jsonl
+```
+
+标注台默认位于 <http://127.0.0.1:8766/>，详见[人物身份标注台](docs/IDENTITY_ANNOTATION.md)。
 
 衣服颜色任务会把描述拆成 `person` 检测和独立颜色复核，支持 12 个标准颜色，并按 ByteTrack ID 做三帧时序稳定；当前视频加入颜色复核后约为 19 FPS。实现、实测与限制见[衣服颜色识别与跟踪](docs/CLOTHING_COLOR_TRACKING.md)。
 

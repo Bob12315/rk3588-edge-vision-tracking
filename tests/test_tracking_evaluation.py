@@ -9,6 +9,7 @@ from edge_vision.tracking_evaluation import (
     evaluate_mot,
     export_mot_jsonl,
     load_mot,
+    load_reviewed_frame_ids,
     maximum_weight_pairs,
     tracking_diagnostics,
 )
@@ -101,6 +102,33 @@ class TrackingEvaluationTests(unittest.TestCase):
         self.assertEqual(summary["exported_detections"], 1)
         self.assertEqual(summary["skipped_untracked_observations"], 1)
         self.assertEqual(exported, "1,4,10.000,20.000,30.000,50.000,0.750000,-1,-1,-1\n")
+
+    def test_annotation_project_defines_explicit_reviewed_frame_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "annotations.json"
+            project.write_text(
+                json.dumps(
+                    {
+                        "video": {"frame_count": 10},
+                        "reviewed_frames": [1, 4, 10],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            reviewed = load_reviewed_frame_ids(project)
+        self.assertEqual(reviewed, {1, 4, 10})
+
+    def test_empty_annotation_project_cannot_define_evaluation_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "annotations.json"
+            project.write_text(
+                json.dumps(
+                    {"video": {"frame_count": 10}, "reviewed_frames": []}
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                load_reviewed_frame_ids(project)
 
 
 if __name__ == "__main__":

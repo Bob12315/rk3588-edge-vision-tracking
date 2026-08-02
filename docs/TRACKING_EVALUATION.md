@@ -80,6 +80,18 @@ PYTHONPATH=src python3 -m edge_vision.tracking_evaluation evaluate \
   --output datasets/identity_eval/metrics.json
 ```
 
+本地网页标注台可从 ByteTrack 预测建议开始，人工审核后直接生成 `gt.txt`。
+使用方法见[人物身份标注台](IDENTITY_ANNOTATION.md)。
+
+如果只标注了部分帧，必须加上：
+
+```bash
+--annotation-project datasets/identity_eval/my_video/annotations.json
+```
+
+评测器将只在明确的 `reviewed_frames` 上计分，包括人工确认没有人物框的空帧。
+未审核帧不会被错算成 false positive。
+
 默认只接受真值中 `class_id=1` 的行，并忽略 mark/confidence 为 0 的区域。可用
 `--gt-class-ids` 和 `--minimum-visibility` 调整。导出的 MOT 预测可进一步按 TrackEval
 要求放入数据集目录，计算 HOTA 和官方实现的其他指标。

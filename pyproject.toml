@@ -16,6 +16,7 @@ edge-vision-detect = "edge_vision.video_detection:main"
 edge-vision-runtime = "edge_vision.realtime:main"
 edge-vision-web = "edge_vision.web_ui:main"
 edge-vision-evaluate = "edge_vision.tracking_evaluation:main"
+edge-vision-annotate = "edge_vision.annotation_ui:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -197,6 +197,22 @@ def load_mot(
     return detections
 
 
+def load_reviewed_frame_ids(path: Path) -> set[int]:
+    """Load the explicit evaluation scope from an identity annotation project."""
+
+    try:
+        payload = json.loads(path.expanduser().read_text(encoding="utf-8"))
+        frame_count = int(payload["video"]["frame_count"])
+        reviewed = {int(frame_id) for frame_id in payload["reviewed_frames"]}
+    except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid annotation project: {path}") from exc
+    if not reviewed:
+        raise ValueError("annotation project contains no reviewed frames")
+    if min(reviewed) < 1 or max(reviewed) > frame_count:
+        raise ValueError("annotation project contains an out-of-range reviewed frame")
+    return reviewed
+
+
 def load_detection_jsonl(
     path: Path,
 ) -> tuple[list[MotDetection], int, int]:
@@ -593,6 +609,11 @@ def _build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--iou-threshold", type=float, default=0.5)
     evaluate.add_argument("--gt-class-ids", nargs="+", type=int, default=[1])
     evaluate.add_argument("--minimum-visibility", type=float, default=0.0)
+    evaluate.add_argument(
+        "--annotation-project",
+        type=Path,
+        help="annotations.json used to restrict scoring to manually reviewed frames",
+    )
     evaluate.add_argument("--output", type=Path)
     return parser
 
@@ -622,6 +643,15 @@ def main() -> None:
         minimum_visibility=args.minimum_visibility,
     )
     predictions = load_mot(args.predictions, ground_truth=False)
+    reviewed_frames = None
+    if args.annotation_project is not None:
+        reviewed_frames = load_reviewed_frame_ids(args.annotation_project)
+        ground_truth = [
+            item for item in ground_truth if item.frame_id in reviewed_frames
+        ]
+        predictions = [
+            item for item in predictions if item.frame_id in reviewed_frames
+        ]
     report = evaluate_mot(
         ground_truth,
         predictions,
@@ -631,6 +661,17 @@ def main() -> None:
         **report,
         "ground_truth": str(args.ground_truth.expanduser().resolve()),
         "predictions": str(args.predictions.expanduser().resolve()),
+        "evaluation_scope": {
+            "mode": "reviewed_frames" if reviewed_frames is not None else "all_rows",
+            "annotation_project": (
+                str(args.annotation_project.expanduser().resolve())
+                if args.annotation_project is not None
+                else None
+            ),
+            "reviewed_frame_count": (
+                len(reviewed_frames) if reviewed_frames is not None else None
+            ),
+        },
     }
     _write_or_print(report, args.output)
 
