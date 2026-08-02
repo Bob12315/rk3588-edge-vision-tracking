@@ -95,6 +95,10 @@ class WebUiHelperTests(unittest.TestCase):
             WebUiConfig(clothing_color_threshold=1.1)
         with self.assertRaises(ValueError):
             WebUiConfig(color_minimum_dominance_ratio=-0.1)
+        with self.assertRaises(ValueError):
+            WebUiConfig(person_scan_frames=2, person_scan_minimum_samples=3)
+        with self.assertRaises(ValueError):
+            WebUiConfig(person_scan_maximum_candidates=0)
 
     def test_performance_modes_have_explicit_model_sizes(self) -> None:
         self.assertEqual(performance_image_size("realtime"), 384)

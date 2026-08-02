@@ -405,6 +405,90 @@ input:focus, textarea:focus, select:focus {
 
 .target-choice:hover { filter: brightness(1.12); transform: translateY(-1px); }
 
+.understand-actions {
+  display: grid;
+  grid-template-columns: 0.82fr 1.18fr;
+  gap: 8px;
+}
+
+.people-catalog {
+  margin-top: 13px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.people-catalog > p {
+  margin-bottom: 9px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.people-catalog.empty .people-cards { display: none; }
+.people-cards { display: grid; gap: 9px; }
+
+.person-card {
+  display: grid;
+  grid-template-columns: 94px minmax(0, 1fr);
+  min-height: 142px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: rgba(3, 10, 15, 0.62);
+}
+
+.person-card.selected {
+  border-color: rgba(244, 202, 90, 0.62);
+  box-shadow: inset 0 0 24px rgba(244, 202, 90, 0.06);
+}
+
+.person-card > img {
+  width: 94px;
+  height: 100%;
+  min-height: 142px;
+  object-fit: cover;
+  background: #02070b;
+}
+
+.person-card-body {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  padding: 10px;
+}
+
+.person-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.person-card-heading strong { font-size: 12px; }
+.person-card-heading span {
+  color: var(--cyan);
+  font: 700 9px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.person-recommendation {
+  margin: 0;
+  color: #d9e9ec;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.person-attributes { display: flex; flex-wrap: wrap; gap: 4px; }
+.person-attributes .chip { padding: 3px 5px; font-size: 9px; }
+.person-card-body small { color: var(--muted); font-size: 8px; }
+
+.button.person-select {
+  min-height: 30px;
+  margin-top: 2px;
+  color: #171103;
+  font-size: 9px;
+  background: var(--yellow);
+}
+
 .check-row {
   display: flex;
   align-items: flex-start;

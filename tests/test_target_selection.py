@@ -50,6 +50,23 @@ class PersistentTargetSelectorTests(unittest.TestCase):
         self.assertIsNone(result.observation)
         self.assertEqual(result.event, "empty")
 
+    def test_locked_identity_never_silently_switches_to_another_person(self) -> None:
+        selector = PersistentTargetSelector(
+            TargetSelectorConfig(miss_tolerance=1, allow_switch=False)
+        )
+        selector.lock(4)
+        self.assertEqual(selector.select([observation(4, 0.7)]).event, "retained")
+        self.assertEqual(selector.select([observation(8, 0.9)]).event, "missing")
+        result = selector.select([observation(8, 0.9)])
+        self.assertIsNone(result.observation)
+        self.assertEqual(result.active_track_id, 4)
+        self.assertEqual(result.event, "lost")
+
+    def test_lock_rejects_negative_track_id(self) -> None:
+        selector = PersistentTargetSelector()
+        with self.assertRaises(ValueError):
+            selector.lock(-1)
+
 
 if __name__ == "__main__":
     unittest.main()

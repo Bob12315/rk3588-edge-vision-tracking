@@ -13,7 +13,11 @@ const elements = {
   fileName: document.querySelector("#fileName"),
   uploadVideo: document.querySelector("#uploadVideo"),
   analyzeScene: document.querySelector("#analyzeScene"),
+  scanPeople: document.querySelector("#scanPeople"),
   analysisOutput: document.querySelector("#analysisOutput"),
+  peopleCatalog: document.querySelector("#peopleCatalog"),
+  peopleCatalogStatus: document.querySelector("#peopleCatalogStatus"),
+  peopleCards: document.querySelector("#peopleCards"),
   targetInput: document.querySelector("#targetInput"),
   useVlmGrounding: document.querySelector("#useVlmGrounding"),
   performanceMode: document.querySelector("#performanceMode"),
@@ -36,6 +40,9 @@ const elements = {
 const phaseNames = {
   idle: "等待视频源",
   preview: "画面已就绪",
+  people_scanning: "正在扫描稳定人物",
+  people_analyzing: "VLM正在分析人物",
+  people_ready: "请选择要跟踪的人物",
   tracking: "正在检测跟踪",
   finished: "视频处理完成",
   error: "运行异常",
@@ -44,6 +51,7 @@ const phaseNames = {
 let localBusy = false;
 let toastTimer = null;
 let lastAnalysisSignature = "";
+let lastPeopleSignature = "";
 
 async function api(path, options = {}) {
   const response = await fetch(path, options);
@@ -170,6 +178,112 @@ function renderPrompts(tracking) {
   }
 }
 
+function visibleAttributeLabels(attributes) {
+  if (!attributes) return [];
+  const labels = [];
+  const garment = (color, type, fallback) => {
+    const parts = [];
+    if (color && color !== "unknown") parts.push(color);
+    if (type && type !== "unknown") parts.push(type);
+    else if (parts.length) parts.push(fallback);
+    return parts.join(" ");
+  };
+  const upper = garment(attributes.upper_color, attributes.upper_type, "upper clothing");
+  const lower = garment(attributes.lower_color, attributes.lower_type, "lower clothing");
+  if (upper) labels.push(upper);
+  if (lower) labels.push(lower);
+  if (attributes.headwear && !["none", "unknown"].includes(attributes.headwear)) {
+    labels.push(`${attributes.headwear_color !== "unknown" ? `${attributes.headwear_color} ` : ""}${attributes.headwear}`);
+  }
+  if (attributes.carried_object && !["none", "unknown"].includes(attributes.carried_object)) {
+    labels.push(`${attributes.carried_object_color !== "unknown" ? `${attributes.carried_object_color} ` : ""}${attributes.carried_object}`);
+  }
+  if (attributes.safety_vest === "yes") labels.push("safety vest");
+  if (attributes.action && attributes.action !== "unknown") {
+    labels.push(attributes.action.replaceAll("_", " "));
+  }
+  return [...new Set(labels)];
+}
+
+async function selectPerson(candidate) {
+  await withBusy("正在锁定人物", `保持扫描 Track ID ${candidate.scan_track_id}`, async () => {
+    const status = await api("/api/people/select", jsonOptions({
+      candidate_id: candidate.candidate_id,
+    }));
+    elements.targetInput.value = candidate.recommended_label || candidate.display_name;
+    elements.useVlmGrounding.checked = false;
+    renderStatus(status);
+    showToast(`已锁定 ${candidate.display_name} · Track ID ${candidate.scan_track_id}`);
+  }).catch(() => {});
+}
+
+function renderPeopleCatalog(catalog) {
+  const value = catalog || { state: "idle", candidates: [] };
+  const signature = JSON.stringify(value);
+  if (signature === lastPeopleSignature) return;
+  lastPeopleSignature = signature;
+  const candidates = value.candidates || [];
+  elements.peopleCards.replaceChildren();
+  elements.peopleCatalog.classList.toggle("empty", value.state === "idle");
+
+  const stateMessages = {
+    idle: "人物卡片会显示在这里。",
+    scanning: `正在累计稳定轨迹：${value.frames_processed || 0}/${value.frames_target || 0} 帧`,
+    analyzing: `已找到 ${candidates.length} 人，Qwen3-VL 正在逐人分析…`,
+    ready: `已生成 ${candidates.filter((item) => item.state === "ready").length} 张人物卡片，请直接选择。`,
+    selected: "已选择具体人物，系统只输出锁定的 Track ID。",
+    error: "人物扫描未完成，请查看错误并重试。",
+  };
+  elements.peopleCatalogStatus.textContent = stateMessages[value.state] || value.state;
+
+  for (const candidate of candidates) {
+    const card = document.createElement("article");
+    card.className = "person-card";
+    if (candidate.candidate_id === value.selected_candidate_id) card.classList.add("selected");
+
+    const image = document.createElement("img");
+    image.src = candidate.crop_url;
+    image.alt = `${candidate.display_name} crop`;
+    image.loading = "lazy";
+
+    const body = document.createElement("div");
+    body.className = "person-card-body";
+    const heading = document.createElement("div");
+    heading.className = "person-card-heading";
+    const name = document.createElement("strong");
+    name.textContent = candidate.display_name;
+    const track = document.createElement("span");
+    track.textContent = `SCAN ID ${candidate.scan_track_id}`;
+    heading.append(name, track);
+
+    const recommendation = document.createElement("p");
+    recommendation.className = "person-recommendation";
+    recommendation.textContent = candidate.state === "analyzing"
+      ? "Analyzing visible attributes…"
+      : candidate.error || candidate.recommended_label || "person";
+
+    const chips = document.createElement("div");
+    chips.className = "person-attributes";
+    for (const label of visibleAttributeLabels(candidate.attributes)) chips.append(makeChip(label));
+
+    const meta = document.createElement("small");
+    const vlmConfidence = candidate.attributes?.confidence;
+    meta.textContent = `track samples ${candidate.sample_count} · detector ${Number(candidate.detector_confidence || 0).toFixed(2)}${vlmConfidence == null ? "" : ` · VLM ${Number(vlmConfidence).toFixed(2)}`}`;
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "button person-select";
+    const selected = candidate.candidate_id === value.selected_candidate_id;
+    button.textContent = selected ? "TRACKING THIS PERSON" : "TRACK THIS PERSON";
+    button.disabled = candidate.state !== "ready" || selected || value.state !== "ready";
+    button.addEventListener("click", () => selectPerson(candidate));
+
+    body.append(heading, recommendation, chips, meta, button);
+    card.append(image, body);
+    elements.peopleCards.append(card);
+  }
+}
+
 function renderDetections(tracking, phase) {
   const detections = tracking.detections || [];
   elements.detectionBadge.textContent = String(detections.length);
@@ -236,11 +350,13 @@ function renderStatus(status) {
 
   const disabled = localBusy || status.busy;
   elements.analyzeScene.disabled = disabled || !source.connected;
-  elements.startTracking.disabled = disabled || !source.connected;
+  elements.scanPeople.disabled = disabled || !source.connected || tracking.active;
+  elements.startTracking.disabled = disabled || !source.connected || tracking.active;
   elements.stopTracking.disabled = disabled || !tracking.active;
   elements.connectCamera.disabled = disabled;
   elements.uploadVideo.disabled = disabled || !elements.videoFile.files.length;
   renderAnalysis(status.scene_analysis);
+  renderPeopleCatalog(status.people_catalog);
   renderPrompts(tracking);
   renderDetections(tracking, status.phase);
   if (status.error) showToast(status.error);
@@ -291,6 +407,16 @@ elements.analyzeScene.addEventListener("click", async () => {
     lastAnalysisSignature = "";
     renderAnalysis(result.analysis);
     await pollStatus();
+  }).catch(() => {});
+});
+
+elements.scanPeople.addEventListener("click", async () => {
+  await withBusy("正在启动人物扫描", "加载 YOLO-World + ByteTrack，随后自动分析人物裁剪", async () => {
+    const status = await api("/api/people/scan", jsonOptions({
+      performance_mode: elements.performanceMode.value,
+    }));
+    lastPeopleSignature = "";
+    renderStatus(status);
   }).catch(() => {});
 });
 

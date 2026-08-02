@@ -19,6 +19,8 @@ from urllib.parse import urlparse
 
 from .contracts import TargetObservation, VisionLanguageModel, VlmSceneAnalysis
 from .filters.clothing_color import clothing_color_from_text, normalize_color_name
+from .person_catalog import PersonScanCollector, catalog_descriptions
+from .target_selection import PersistentTargetSelector, TargetSelectorConfig
 from .video_detection import observation_to_mapping
 from .vlm import normalize_grounding_prompts, scene_analysis_to_mapping
 
@@ -132,6 +134,9 @@ class WebUiConfig:
     color_minimum_dominance_ratio: float = 0.85
     color_temporal_min_samples: int = 3
     minimum_person_height_ratio: float = 0.10
+    person_scan_frames: int = 18
+    person_scan_minimum_samples: int = 3
+    person_scan_maximum_candidates: int = 6
     jpeg_quality: int = 82
 
     def __post_init__(self) -> None:
@@ -147,6 +152,12 @@ class WebUiConfig:
             raise ValueError("color_temporal_min_samples must be positive")
         if not 0.0 <= self.minimum_person_height_ratio <= 1.0:
             raise ValueError("minimum_person_height_ratio must be in [0, 1]")
+        if self.person_scan_frames < 1:
+            raise ValueError("person_scan_frames must be positive")
+        if not 1 <= self.person_scan_minimum_samples <= self.person_scan_frames:
+            raise ValueError("person scan minimum samples must fit inside scan frames")
+        if self.person_scan_maximum_candidates < 1:
+            raise ValueError("person_scan_maximum_candidates must be positive")
         if not 1 <= self.jpeg_quality <= 100:
             raise ValueError("jpeg_quality must be in [1, 100]")
 
@@ -209,6 +220,16 @@ class VisionWebSession:
         self._inference_ms: deque[float] = deque(maxlen=60)
         self._processed_timestamps: deque[float] = deque(maxlen=60)
         self._read_failures = 0
+        self._person_scan_state = "idle"
+        self._person_scan_frames_processed = 0
+        self._person_scan_collector: PersonScanCollector | None = None
+        self._person_candidates: list[dict[str, Any]] = []
+        self._person_crops: dict[str, bytes] = {}
+        self._person_frames: dict[str, Any] = {}
+        self._selected_candidate_id: str | None = None
+        self._selected_track_id: int | None = None
+        self._target_selector: PersistentTargetSelector | None = None
+        self._selection_event = ""
         self._worker = threading.Thread(
             target=self._capture_loop,
             name="edge-vision-web-capture",
@@ -289,6 +310,7 @@ class VisionWebSession:
             self._inference_ms.clear()
             self._processed_timestamps.clear()
             self._read_failures = 0
+            self._reset_people_locked()
             self._store_frame_locked(first_frame, first_frame)
 
     def analyze_scene(self, instruction: str | None = None) -> Mapping[str, Any]:
@@ -313,6 +335,115 @@ class VisionWebSession:
             finally:
                 with self._lock:
                     self._vlm_busy = False
+
+    def scan_people(
+        self, *, performance_mode: str = "realtime"
+    ) -> Mapping[str, Any]:
+        """Collect stable person tracks, then analyze their best crops asynchronously."""
+
+        image_size = performance_image_size(performance_mode)
+        frame = self._frame_snapshot()
+        with self._operation_lock:
+            with self._lock:
+                self._detector_loading = True
+                self._error = None
+            try:
+                detector, base_detector = self._detector_factory(
+                    ("person",), None, image_size
+                )
+                warmup = getattr(detector, "warmup", None)
+                if callable(warmup):
+                    warmup(frame)
+                collector = PersonScanCollector(
+                    minimum_samples=self.config.person_scan_minimum_samples,
+                    maximum_candidates=self.config.person_scan_maximum_candidates,
+                    minimum_confidence=max(0.10, self.config.confidence),
+                    minimum_height_ratio=self.config.minimum_person_height_ratio,
+                )
+                with self._lock:
+                    if self._capture is None:
+                        raise RuntimeError("视频源已断开，请重新选择")
+                    if self._source_kind == "video":
+                        self._capture.set(self._cv2.CAP_PROP_POS_FRAMES, 0)
+                    self._generation += 1
+                    self._reset_people_locked()
+                    self._person_scan_state = "scanning"
+                    self._person_scan_collector = collector
+                    self._detector = detector
+                    self._base_detector = base_detector
+                    self._tracking = True
+                    self._phase = "people_scanning"
+                    self._frame_id = 0
+                    self._detections = []
+                    self._seen_track_ids.clear()
+                    self._matched_frame_count = 0
+                    self._target_query = "people catalog scan"
+                    self._prompts = ("person",)
+                    self._attribute_filter = None
+                    self._target_color = None
+                    self._performance_mode = performance_mode
+                    self._active_image_size = image_size
+                    self._grounding_analysis = None
+                    self._inference_ms.clear()
+                    self._processed_timestamps.clear()
+                    self._read_failures = 0
+                return self.status()
+            except Exception as exc:
+                self._set_error(f"启动人物扫描失败：{exc}")
+                raise
+            finally:
+                with self._lock:
+                    self._detector_loading = False
+
+    def select_person(self, candidate_id: str) -> Mapping[str, Any]:
+        """Continue the scan tracker while exposing only the chosen ByteTrack identity."""
+
+        selected_id = candidate_id.strip()
+        if not selected_id:
+            raise ValueError("缺少人物候选 ID")
+        with self._operation_lock:
+            with self._lock:
+                candidate = next(
+                    (
+                        item
+                        for item in self._person_candidates
+                        if item["candidate_id"] == selected_id
+                    ),
+                    None,
+                )
+                if candidate is None:
+                    raise ValueError("人物候选不存在，请重新扫描")
+                if candidate.get("state") != "ready":
+                    raise ValueError("人物属性尚未分析完成")
+                if self._detector is None:
+                    raise RuntimeError("人物跟踪器已经释放，请重新扫描")
+                track_id = int(candidate["scan_track_id"])
+                selector = PersistentTargetSelector(
+                    TargetSelectorConfig(miss_tolerance=30, allow_switch=False)
+                )
+                selector.lock(track_id)
+                self._target_selector = selector
+                self._selected_candidate_id = selected_id
+                self._selected_track_id = track_id
+                self._selection_event = "locked_scan_track"
+                self._tracking = True
+                self._phase = "tracking"
+                self._error = None
+                self._target_query = str(candidate.get("recommended_label") or "person")
+                self._prompts = ("person",)
+                self._attribute_filter = "selected-track-id"
+                self._target_color = None
+                self._detections = []
+                self._seen_track_ids.clear()
+                self._matched_frame_count = 0
+                self._inference_ms.clear()
+                self._processed_timestamps.clear()
+                self._person_scan_state = "selected"
+            return self.status()
+
+    def person_crop(self, candidate_id: str) -> bytes | None:
+        with self._lock:
+            return self._person_crops.get(candidate_id)
 
     def start_tracking(
         self,
@@ -374,6 +505,7 @@ class VisionWebSession:
                     if self._source_kind == "video":
                         self._capture.set(self._cv2.CAP_PROP_POS_FRAMES, 0)
                     self._generation += 1
+                    self._reset_people_locked()
                     self._detector = detector
                     self._base_detector = base_detector
                     self._tracking = True
@@ -419,6 +551,7 @@ class VisionWebSession:
             self._detector = None
             self._base_detector = None
             self._detections = []
+            self._reset_people_locked()
             self._phase = "preview" if self._capture is not None else "idle"
             self._error = None
         return self.status()
@@ -443,6 +576,7 @@ class VisionWebSession:
                     if item.track_id is not None
                 }
             )
+            people_candidates = [dict(item) for item in self._person_candidates]
             return {
                 "phase": self._phase,
                 "error": self._error,
@@ -460,6 +594,14 @@ class VisionWebSession:
                 "scene_analysis": self._scene_analysis,
                 "grounding_analysis": self._grounding_analysis,
                 "vlm_metrics": dict(self._vlm_metrics),
+                "people_catalog": {
+                    "state": self._person_scan_state,
+                    "frames_processed": self._person_scan_frames_processed,
+                    "frames_target": self.config.person_scan_frames,
+                    "maximum_candidates": self.config.person_scan_maximum_candidates,
+                    "candidates": people_candidates,
+                    "selected_candidate_id": self._selected_candidate_id,
+                },
                 "tracking": {
                     "active": self._tracking,
                     "target_query": self._target_query,
@@ -474,6 +616,9 @@ class VisionWebSession:
                     "track_ids": track_ids,
                     "seen_track_ids": sorted(self._seen_track_ids),
                     "matched_frame_count": self._matched_frame_count,
+                    "selected_candidate_id": self._selected_candidate_id,
+                    "selected_track_id": self._selected_track_id,
+                    "selection_event": self._selection_event,
                     "mean_inference_ms": mean_inference,
                     "model_fps": 1000.0 / mean_inference if mean_inference else 0.0,
                     "processing_fps": timestamp_rate(processed_timestamps),
@@ -500,13 +645,21 @@ class VisionWebSession:
 
     def _capture_loop(self) -> None:
         while not self._stop_event.is_set():
+            analysis_job: tuple[int, tuple[str, ...]] | None = None
             with self._lock:
                 capture = self._capture
                 source_kind = self._source_kind
                 tracking = self._tracking
                 detector = self._detector
                 generation = self._generation
-                if capture is None or (source_kind == "video" and not tracking):
+                phase = self._phase
+                target_selector = self._target_selector
+                paused_for_catalog = phase in {"people_analyzing", "people_ready"}
+                if (
+                    capture is None
+                    or paused_for_catalog
+                    or (source_kind == "video" and not tracking)
+                ):
                     should_read = False
                 else:
                     should_read = True
@@ -519,10 +672,20 @@ class VisionWebSession:
                 if source_kind == "video":
                     with self._lock:
                         if generation == self._generation:
-                            self._tracking = False
-                            self._detector = None
-                            self._base_detector = None
-                            self._phase = "finished"
+                            if self._phase == "people_scanning":
+                                analysis_job = self._prepare_people_analysis_locked()
+                            else:
+                                self._tracking = False
+                                self._detector = None
+                                self._base_detector = None
+                                self._phase = "finished"
+                    if analysis_job is not None:
+                        threading.Thread(
+                            target=self._analyze_people,
+                            args=analysis_job,
+                            name="edge-vision-person-attributes",
+                            daemon=True,
+                        ).start()
                     self._stop_event.wait(0.04)
                     continue
                 self._read_failures += 1
@@ -538,6 +701,7 @@ class VisionWebSession:
             observations: list[TargetObservation] = []
             inference_ms = 0.0
             display_frame = frame
+            selection_result = None
             if tracking and detector is not None:
                 started = time.perf_counter()
                 try:
@@ -549,6 +713,13 @@ class VisionWebSession:
                         self._phase = "error"
                     continue
                 inference_ms = (time.perf_counter() - started) * 1000.0
+                if target_selector is not None:
+                    selection_result = target_selector.select(observations)
+                    observations = (
+                        [selection_result.observation]
+                        if selection_result.observation is not None
+                        else []
+                    )
                 display_frame = draw_tracking_frame(
                     frame.copy(),
                     observations,
@@ -560,6 +731,12 @@ class VisionWebSession:
             with self._lock:
                 if generation != self._generation:
                     continue
+                if (
+                    selection_result is not None
+                    and target_selector is self._target_selector
+                ):
+                    self._selected_track_id = selection_result.active_track_id
+                    self._selection_event = selection_result.event
                 self._frame_id += 1
                 self._detections = observations
                 self._seen_track_ids.update(
@@ -572,7 +749,176 @@ class VisionWebSession:
                 self._store_frame_locked(frame, display_frame)
                 if inference_ms:
                     self._processed_timestamps.append(time.perf_counter())
+                if (
+                    self._phase == "people_scanning"
+                    and self._person_scan_collector is not None
+                ):
+                    self._person_scan_collector.observe(frame, observations)
+                    self._person_scan_frames_processed += 1
+                    if (
+                        self._person_scan_frames_processed
+                        >= self.config.person_scan_frames
+                    ):
+                        analysis_job = self._prepare_people_analysis_locked()
+            if analysis_job is not None:
+                thread = threading.Thread(
+                    target=self._analyze_people,
+                    args=analysis_job,
+                    name="edge-vision-person-attributes",
+                    daemon=True,
+                )
+                thread.start()
             self._stop_event.wait(0.003)
+
+    def _prepare_people_analysis_locked(
+        self,
+    ) -> tuple[int, tuple[str, ...]] | None:
+        collector = self._person_scan_collector
+        collected = collector.candidates() if collector is not None else ()
+        self._tracking = False
+        self._person_scan_collector = None
+        if not collected:
+            self._person_scan_state = "error"
+            self._phase = "preview"
+            self._error = (
+                "人物扫描未获得稳定目标；请让人物保持可见，或切换到清晰模式后重试"
+            )
+            self._detector = None
+            self._base_detector = None
+            return None
+
+        self._person_candidates = []
+        self._person_crops = {}
+        self._person_frames = {}
+        for index, person in enumerate(collected, start=1):
+            candidate_id = f"person-{index}"
+            ok, encoded = self._cv2.imencode(
+                ".jpg",
+                person.best_crop,
+                [self._cv2.IMWRITE_JPEG_QUALITY, 92],
+            )
+            if not ok:
+                continue
+            latest = observation_to_mapping(
+                person.latest_observation,
+                self._source_width,
+                self._source_height,
+            )
+            self._person_crops[candidate_id] = encoded.tobytes()
+            self._person_frames[candidate_id] = person.best_crop
+            self._person_candidates.append(
+                {
+                    "candidate_id": candidate_id,
+                    "display_name": f"Person {index}",
+                    "scan_track_id": person.track_id,
+                    "sample_count": person.sample_count,
+                    "detector_confidence": person.best_observation.detector_confidence,
+                    "box_xyxy_normalized": latest["box_xyxy_normalized"],
+                    "box_xyxy_pixels": latest["box_xyxy_pixels"],
+                    "crop_url": f"/api/people/crop/{candidate_id}?v={self._generation}",
+                    "state": "analyzing",
+                    "attributes": None,
+                    "phrases": [],
+                    "recommended_label": f"Person {index}",
+                    "unique_in_scan": False,
+                    "error": None,
+                }
+            )
+        if not self._person_candidates:
+            self._person_scan_state = "error"
+            self._phase = "preview"
+            self._error = "人物裁剪编码失败，请重新扫描"
+            self._detector = None
+            self._base_detector = None
+            return None
+
+        self._person_scan_state = "analyzing"
+        self._phase = "people_analyzing"
+        self._vlm_busy = True
+        candidate_ids = tuple(
+            item["candidate_id"] for item in self._person_candidates
+        )
+        return self._generation, candidate_ids
+
+    def _analyze_people(
+        self, generation: int, candidate_ids: tuple[str, ...]
+    ) -> None:
+        analyzed: list[tuple[str, Any]] = []
+        analyze_person = getattr(self.vlm, "analyze_person", None)
+        for candidate_id in candidate_ids:
+            with self._lock:
+                if generation != self._generation:
+                    return
+                frame = self._person_frames.get(candidate_id)
+            if frame is None:
+                continue
+            try:
+                if not callable(analyze_person):
+                    raise RuntimeError("当前 VLM 适配器不支持逐人物属性分析")
+                with self._vlm_lock:
+                    attributes = analyze_person(frame)
+                metrics = dict(getattr(self.vlm, "last_metrics", {}))
+            except Exception as exc:
+                with self._lock:
+                    if generation != self._generation:
+                        return
+                    candidate = self._person_candidate_locked(candidate_id)
+                    if candidate is not None:
+                        candidate["state"] = "error"
+                        candidate["error"] = str(exc)
+                continue
+            with self._lock:
+                if generation != self._generation:
+                    return
+                candidate = self._person_candidate_locked(candidate_id)
+                if candidate is not None:
+                    candidate["state"] = "ready"
+                    candidate["attributes"] = attributes.to_mapping()
+                self._vlm_metrics = metrics
+            analyzed.append((candidate_id, attributes))
+
+        descriptions = catalog_descriptions([item[1] for item in analyzed])
+        with self._lock:
+            if generation != self._generation:
+                return
+            for (candidate_id, _), description in zip(analyzed, descriptions):
+                candidate = self._person_candidate_locked(candidate_id)
+                if candidate is not None:
+                    candidate.update(description)
+            self._person_frames.clear()
+            self._vlm_busy = False
+            if analyzed:
+                self._person_scan_state = "ready"
+                self._phase = "people_ready"
+                self._error = None
+            else:
+                self._person_scan_state = "error"
+                self._phase = "preview"
+                self._error = "VLM 未能分析任何人物裁剪，请检查本地模型后重试"
+                self._detector = None
+                self._base_detector = None
+
+    def _person_candidate_locked(self, candidate_id: str) -> dict[str, Any] | None:
+        return next(
+            (
+                item
+                for item in self._person_candidates
+                if item["candidate_id"] == candidate_id
+            ),
+            None,
+        )
+
+    def _reset_people_locked(self) -> None:
+        self._person_scan_state = "idle"
+        self._person_scan_frames_processed = 0
+        self._person_scan_collector = None
+        self._person_candidates = []
+        self._person_crops = {}
+        self._person_frames = {}
+        self._selected_candidate_id = None
+        self._selected_track_id = None
+        self._target_selector = None
+        self._selection_event = ""
 
     def _store_frame_locked(self, raw_frame: Any, display_frame: Any) -> None:
         ok, encoded = self._cv2.imencode(
@@ -713,6 +1059,14 @@ def build_handler(
             if path == "/api/status":
                 self._send_json(session.status())
                 return
+            if path.startswith("/api/people/crop/"):
+                candidate_id = path.removeprefix("/api/people/crop/")
+                crop = session.person_crop(candidate_id)
+                if crop is None:
+                    self._send_json({"error": "person crop not found"}, status=404)
+                else:
+                    self._send_bytes(crop, "image/jpeg")
+                return
             if path == "/stream":
                 self._stream_mjpeg()
                 return
@@ -735,6 +1089,20 @@ def build_handler(
                     payload = self._read_json()
                     instruction = str(payload.get("instruction", "")).strip() or None
                     self._send_json({"analysis": session.analyze_scene(instruction)})
+                    return
+                if path == "/api/people/scan":
+                    payload = self._read_json()
+                    performance_mode = str(
+                        payload.get("performance_mode", "realtime")
+                    )
+                    self._send_json(
+                        session.scan_people(performance_mode=performance_mode)
+                    )
+                    return
+                if path == "/api/people/select":
+                    payload = self._read_json()
+                    candidate_id = str(payload.get("candidate_id", ""))
+                    self._send_json(session.select_person(candidate_id))
                     return
                 if path == "/api/tracking/start":
                     payload = self._read_json()

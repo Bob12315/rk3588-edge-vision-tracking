@@ -93,10 +93,17 @@
                 <h2>VLM 画面理解</h2>
               </div>
             </div>
-            <p class="section-copy">用本地 Qwen3-VL 分析当前帧，并用英文列出可直接框选的目标。</p>
-            <button id="analyzeScene" class="button primary full" type="button">分析当前画面</button>
+            <p class="section-copy">场景分析列出物体；人物扫描会先用 YOLO-World + ByteTrack 找到稳定人物，再让本地 Qwen3-VL 分析各自裁剪图。</p>
+            <div class="understand-actions">
+              <button id="analyzeScene" class="button secondary" type="button">分析场景物体</button>
+              <button id="scanPeople" class="button primary" type="button">扫描并选择人物</button>
+            </div>
             <div id="analysisOutput" class="analysis-output empty">
               <p>分析结果会显示在这里。</p>
+            </div>
+            <div id="peopleCatalog" class="people-catalog empty">
+              <p id="peopleCatalogStatus">人物卡片会显示在这里。</p>
+              <div id="peopleCards" class="people-cards"></div>
             </div>
           </section>
 

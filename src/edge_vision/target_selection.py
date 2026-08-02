@@ -17,6 +17,7 @@ class TargetSelectorConfig:
     attribute_weight: float = 0.30
     area_weight: float = 0.15
     center_weight: float = 0.05
+    allow_switch: bool = True
 
     def __post_init__(self) -> None:
         if self.miss_tolerance < 0:
@@ -51,6 +52,14 @@ class PersistentTargetSelector:
         self.active_track_id = None
         self.missed_frames = 0
 
+    def lock(self, track_id: int) -> None:
+        """Pin a detector-provided identity before the next tracking frame."""
+
+        if track_id < 0:
+            raise ValueError("track_id must be non-negative")
+        self.active_track_id = track_id
+        self.missed_frames = 0
+
     def select(self, candidates: Sequence[TargetObservation]) -> SelectionResult:
         if self.active_track_id is not None:
             retained = next(
@@ -73,6 +82,13 @@ class PersistentTargetSelector:
                     self.active_track_id,
                     "missing",
                     "active identity absent inside switch grace window",
+                )
+            if not self.config.allow_switch:
+                return SelectionResult(
+                    None,
+                    self.active_track_id,
+                    "lost",
+                    "locked ByteTrack identity is lost; automatic switching is disabled",
                 )
 
         tracked = [item for item in candidates if item.track_id is not None]

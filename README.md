@@ -19,6 +19,7 @@
 - 模型无关的数据契约与可替换适配器接口。
 - YOLO-World 运行时文本提示，以及普通 YOLO 对照基线。
 - ByteTrack 多目标 ID、逐帧 JSONL 记录和轨迹统计。
+- 逐人物稳定轨迹扫描、受控 VLM 属性卡片和指定 Track ID 锁定。
 - 持久单目标选择，以及 `SEARCH → LOCK → TRACK → LOST → HOLD` 实时编排。
 - 与供应商无关的 VLM 结构化输出契约及离线回放入口。
 - 文件、摄像头索引和 RTSP/HTTP 视频源的统一运行入口。
@@ -136,6 +137,10 @@ make web-ui
 默认访问 <http://127.0.0.1:8765/>。网页显示场景摘要、物体列表、检测框、YOLO-World 提示词、track ID、FPS 和延迟；不包含飞控功能。详见[本地网页视觉控制台](docs/WEB_UI.md)。
 
 网页默认使用 384 实时档和折中 ByteTrack 参数，当前视频从约 9.7 FPS 提升到约 20.5 FPS；512/640 档用于更小或更难的目标。参数与轨迹碎片对照见[跟踪优化记录](docs/TRACKING_OPTIMIZATION.md)。
+
+点击“扫描并选择人物”后，系统先累计稳定的人物 Track ID，再让 Qwen3-VL 分析每个
+人物裁剪并生成英文卡片；选择卡片后只输出该具体 ID。实现和边界见
+[逐人物属性目录](docs/PERSON_CATALOG.md)。
 
 衣服颜色任务会把描述拆成 `person` 检测和独立颜色复核，支持 12 个标准颜色，并按 ByteTrack ID 做三帧时序稳定；当前视频加入颜色复核后约为 19 FPS。实现、实测与限制见[衣服颜色识别与跟踪](docs/CLOTHING_COLOR_TRACKING.md)。
 

@@ -79,6 +79,41 @@ class OllamaVlmTests(unittest.TestCase):
         self.assertEqual(analysis.objects[0].name, "person")
         self.assertEqual(vlm.last_metrics["response_field"], "thinking")
 
+    def test_parses_controlled_person_crop_attributes(self) -> None:
+        captured = {}
+        content = {
+            "upper_color": "brown",
+            "upper_type": "jacket",
+            "lower_color": "black",
+            "lower_type": "pants",
+            "headwear": "helmet",
+            "headwear_color": "white",
+            "carried_object": "none",
+            "carried_object_color": "unknown",
+            "safety_vest": "no",
+            "action": "riding",
+            "visibility": {
+                "upper_body": "clear",
+                "lower_body": "partial",
+                "head": "clear",
+            },
+            "confidence": 0.91,
+        }
+
+        def transport(request, timeout):
+            captured["payload"] = json.loads(request.data.decode("utf-8"))
+            return json.dumps(
+                {"message": {"role": "assistant", "content": json.dumps(content)}}
+            ).encode("utf-8")
+
+        vlm = OllamaVlm(transport=transport)
+        result = vlm.analyze_person_image_bytes(b"person-jpeg")
+        self.assertEqual(result.upper_color, "brown")
+        self.assertEqual(result.headwear, "helmet")
+        schema = captured["payload"]["format"]
+        self.assertIn("unknown", schema["properties"]["upper_color"]["enum"])
+        self.assertFalse(captured["payload"]["think"])
+
 
 if __name__ == "__main__":
     unittest.main()
