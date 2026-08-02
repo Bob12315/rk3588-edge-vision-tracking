@@ -1,0 +1,10 @@
+# Balanced ByteTrack profile for general Web UI targets.
+# Keeps low-score detections available for association while requiring a stronger
+# detection to create a new identity. Re-tune with annotated camera footage.
+tracker_type: bytetrack
+track_high_thresh: 0.12
+track_low_thresh: 0.05
+new_track_thresh: 0.12
+track_buffer: 30
+match_thresh: 0.8
+fuse_score: true

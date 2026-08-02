@@ -1,0 +1,16 @@
+{
+  "summary": "A crowded outdoor sports scene with multiple people in different clothing colors.",
+  "objects": [
+    {
+      "name": "person",
+      "attributes": ["white clothing", "red clothing"],
+      "count": null
+    }
+  ],
+  "grounding": {
+    "user_query": "find people wearing white clothes",
+    "yolo_world_prompts": ["person"],
+    "required_attributes": ["white clothing"],
+    "relation": null
+  }
+}

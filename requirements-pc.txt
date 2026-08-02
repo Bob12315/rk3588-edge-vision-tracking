@@ -1,0 +1,5 @@
+# Install CPU-only PyTorch first when this workstation has no NVIDIA GPU:
+# python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+ultralytics==8.4.113
+lap==0.5.13
+clip @ git+https://github.com/ultralytics/CLIP.git@c4b6ea0932a2c0f39a0fa528af5ec4982ff15cab

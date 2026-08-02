@@ -1,0 +1,15 @@
+# Conservative identity-oriented profile for selected-person tracking.
+# Keeps the existing detector thresholds while adding camera-motion compensation
+# and native YOLO appearance features. Validate again after model or camera changes.
+tracker_type: botsort
+track_high_thresh: 0.12
+track_low_thresh: 0.05
+new_track_thresh: 0.12
+track_buffer: 60
+match_thresh: 0.8
+fuse_score: true
+gmc_method: sparseOptFlow
+proximity_thresh: 0.5
+appearance_thresh: 0.92
+with_reid: true
+model: auto

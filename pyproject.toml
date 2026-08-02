@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rk3588-edge-vision"
+version = "0.1.0"
+description = "RK3588 airborne target detection, tracking, and safety orchestration skeleton"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+edge-vision-demo = "edge_vision.cli:main"
+edge-vision-detect = "edge_vision.video_detection:main"
+edge-vision-runtime = "edge_vision.realtime:main"
+edge-vision-web = "edge_vision.web_ui:main"
+edge-vision-evaluate = "edge_vision.tracking_evaluation:main"
+edge-vision-annotate = "edge_vision.annotation_ui:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+edge_vision = ["web/*.html", "web/*.css", "web/*.js", "web/*.svg"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
