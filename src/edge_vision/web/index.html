@@ -93,7 +93,7 @@
                 <h2>VLM 画面理解</h2>
               </div>
             </div>
-            <p class="section-copy">场景分析列出物体；人物扫描会先用 YOLO-World + ByteTrack 找到稳定人物，再让本地 Qwen3-VL 分析各自裁剪图。</p>
+            <p class="section-copy">场景分析列出物体；人物扫描会先用 YOLO-World + 当前跟踪模式找到稳定人物，再让本地 Qwen3-VL 分析各自裁剪图。</p>
             <div class="understand-actions">
               <button id="analyzeScene" class="button secondary" type="button">分析场景物体</button>
               <button id="scanPeople" class="button primary" type="button">扫描并选择人物</button>
@@ -124,6 +124,12 @@
                 <small>推荐用于中文、颜色、衣着或关系描述</small>
               </span>
             </label>
+            <label for="trackingMode">跟踪模式</label>
+            <select id="trackingMode">
+              <option value="bytetrack">实时 · ByteTrack（推荐）</option>
+              <option value="reid">身份增强 · BoT-SORT + ReID</option>
+            </select>
+            <p class="hint mode-hint">ReID 用外观特征辅助遮挡后关联，但本机实测帧率约降低 25%。</p>
             <label for="performanceMode">检测性能模式</label>
             <select id="performanceMode">
               <option value="realtime">实时 · 384 px（推荐）</option>

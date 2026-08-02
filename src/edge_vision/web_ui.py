@@ -1,4 +1,4 @@
-"""Local web UI for VLM scene analysis and YOLO-World + ByteTrack tracking."""
+"""Local web UI for VLM scene analysis and YOLO-World tracking."""
 
 from __future__ import annotations
 
@@ -37,6 +37,7 @@ PERFORMANCE_IMAGE_SIZES = {
     "balanced": 512,
     "quality": 640,
 }
+TRACKING_MODES = ("bytetrack", "reid")
 
 
 def split_direct_prompts(value: str) -> tuple[str, ...]:
@@ -106,6 +107,16 @@ def performance_image_size(mode: str) -> int:
         raise ValueError(f"未知性能模式，可选：{choices}") from exc
 
 
+def normalize_tracking_mode(mode: str) -> str:
+    """Validate a Web UI tracker choice without silently changing its meaning."""
+
+    normalized = mode.strip().casefold()
+    if normalized not in TRACKING_MODES:
+        choices = ", ".join(TRACKING_MODES)
+        raise ValueError(f"未知跟踪模式，可选：{choices}")
+    return normalized
+
+
 def grounding_detection_prompts(
     prompts: Sequence[str], clothing_color: str | None
 ) -> tuple[str, ...]:
@@ -130,6 +141,7 @@ class WebUiConfig:
     image_size: int = 384
     device: str = "cpu"
     tracker_config: str = "configs/bytetrack_balanced.yaml"
+    reid_tracker_config: str = "configs/botsort_reid.yaml"
     clothing_color_threshold: float = 0.20
     color_minimum_dominance_ratio: float = 0.85
     color_temporal_min_samples: int = 3
@@ -162,7 +174,16 @@ class WebUiConfig:
             raise ValueError("jpeg_quality must be in [1, 100]")
 
 
-DetectorFactory = Callable[[Sequence[str], str | None, int], tuple[Any, Any]]
+def tracking_config_for_mode(config: WebUiConfig, mode: str) -> str:
+    """Return the explicit tracker configuration for a validated UI mode."""
+
+    normalized = normalize_tracking_mode(mode)
+    if normalized == "reid":
+        return config.reid_tracker_config
+    return config.tracker_config
+
+
+DetectorFactory = Callable[[Sequence[str], str | None, int, str], tuple[Any, Any]]
 
 
 class VisionWebSession:
@@ -211,6 +232,7 @@ class VisionWebSession:
         self._attribute_filter: str | None = None
         self._target_color: str | None = None
         self._performance_mode = "realtime"
+        self._tracking_mode = "bytetrack"
         self._active_image_size = config.image_size
         self._scene_analysis: Mapping[str, Any] | None = None
         self._grounding_analysis: Mapping[str, Any] | None = None
@@ -303,6 +325,7 @@ class VisionWebSession:
             self._attribute_filter = None
             self._target_color = None
             self._performance_mode = "realtime"
+            self._tracking_mode = "bytetrack"
             self._active_image_size = self.config.image_size
             self._grounding_analysis = None
             self._scene_analysis = None
@@ -337,11 +360,15 @@ class VisionWebSession:
                     self._vlm_busy = False
 
     def scan_people(
-        self, *, performance_mode: str = "realtime"
+        self,
+        *,
+        performance_mode: str = "realtime",
+        tracking_mode: str = "bytetrack",
     ) -> Mapping[str, Any]:
         """Collect stable person tracks, then analyze their best crops asynchronously."""
 
         image_size = performance_image_size(performance_mode)
+        tracking_mode = normalize_tracking_mode(tracking_mode)
         frame = self._frame_snapshot()
         with self._operation_lock:
             with self._lock:
@@ -349,7 +376,7 @@ class VisionWebSession:
                 self._error = None
             try:
                 detector, base_detector = self._detector_factory(
-                    ("person",), None, image_size
+                    ("person",), None, image_size, tracking_mode
                 )
                 warmup = getattr(detector, "warmup", None)
                 if callable(warmup):
@@ -382,6 +409,7 @@ class VisionWebSession:
                     self._attribute_filter = None
                     self._target_color = None
                     self._performance_mode = performance_mode
+                    self._tracking_mode = tracking_mode
                     self._active_image_size = image_size
                     self._grounding_analysis = None
                     self._inference_ms.clear()
@@ -396,7 +424,7 @@ class VisionWebSession:
                     self._detector_loading = False
 
     def select_person(self, candidate_id: str) -> Mapping[str, Any]:
-        """Continue the scan tracker while exposing only the chosen ByteTrack identity."""
+        """Continue the scan tracker while exposing only the chosen tracker identity."""
 
         selected_id = candidate_id.strip()
         if not selected_id:
@@ -451,6 +479,7 @@ class VisionWebSession:
         *,
         use_vlm_grounding: bool = True,
         performance_mode: str = "realtime",
+        tracking_mode: str = "bytetrack",
     ) -> Mapping[str, Any]:
         query = target_query.strip()
         if not query:
@@ -458,6 +487,7 @@ class VisionWebSession:
         if len(query) > 500:
             raise ValueError("目标描述不能超过 500 个字符")
         image_size = performance_image_size(performance_mode)
+        tracking_mode = normalize_tracking_mode(tracking_mode)
         frame = self._frame_snapshot()
 
         with self._operation_lock:
@@ -493,7 +523,7 @@ class VisionWebSession:
                 clothing_color = requested_clothing_color(grounding_analysis, query)
                 prompts = grounding_detection_prompts(prompts, clothing_color)
                 detector, base_detector = self._detector_factory(
-                    prompts, clothing_color, image_size
+                    prompts, clothing_color, image_size, tracking_mode
                 )
                 warmup = getattr(detector, "warmup", None)
                 if callable(warmup):
@@ -523,6 +553,7 @@ class VisionWebSession:
                     )
                     self._target_color = clothing_color
                     self._performance_mode = performance_mode
+                    self._tracking_mode = tracking_mode
                     self._active_image_size = image_size
                     self._grounding_analysis = (
                         scene_analysis_to_mapping(grounding_analysis)
@@ -609,6 +640,7 @@ class VisionWebSession:
                     "attribute_filter": self._attribute_filter,
                     "target_color": self._target_color,
                     "performance_mode": self._performance_mode,
+                    "tracking_mode": self._tracking_mode,
                     "image_size": self._active_image_size,
                     "frame_id": self._frame_id,
                     "detections": detections,
@@ -935,17 +967,22 @@ class VisionWebSession:
             self._error = message
 
     def _build_detector(
-        self, prompts: Sequence[str], clothing_color: str | None, image_size: int
+        self,
+        prompts: Sequence[str],
+        clothing_color: str | None,
+        image_size: int,
+        tracking_mode: str,
     ) -> tuple[Any, Any]:
         from .adapters.ultralytics_yolo_world import UltralyticsYoloWorldDetector
 
+        tracker_config = tracking_config_for_mode(self.config, tracking_mode)
         base_detector = UltralyticsYoloWorldDetector(
             self.config.model,
             prompts=prompts,
             confidence=self.config.confidence,
             image_size=image_size,
             device=self.config.device,
-            tracker_config=self.config.tracker_config,
+            tracker_config=tracker_config,
         )
         if clothing_color is None:
             return base_detector, base_detector
@@ -1095,8 +1132,12 @@ def build_handler(
                     performance_mode = str(
                         payload.get("performance_mode", "realtime")
                     )
+                    tracking_mode = str(payload.get("tracking_mode", "bytetrack"))
                     self._send_json(
-                        session.scan_people(performance_mode=performance_mode)
+                        session.scan_people(
+                            performance_mode=performance_mode,
+                            tracking_mode=tracking_mode,
+                        )
                     )
                     return
                 if path == "/api/people/select":
@@ -1111,11 +1152,13 @@ def build_handler(
                     performance_mode = str(
                         payload.get("performance_mode", "realtime")
                     )
+                    tracking_mode = str(payload.get("tracking_mode", "bytetrack"))
                     self._send_json(
                         session.start_tracking(
                             target,
                             use_vlm_grounding=use_vlm,
                             performance_mode=performance_mode,
+                            tracking_mode=tracking_mode,
                         )
                     )
                     return
@@ -1254,6 +1297,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--tracker-config", default="configs/bytetrack_balanced.yaml"
     )
+    parser.add_argument(
+        "--reid-tracker-config", default="configs/botsort_reid.yaml"
+    )
     parser.add_argument("--vlm-model", default="qwen3-vl:2b")
     parser.add_argument("--vlm-base-url", default="http://127.0.0.1:11434")
     parser.add_argument("--vlm-timeout-seconds", type=float, default=60.0)
@@ -1272,6 +1318,12 @@ def main() -> None:
     tracker_config = (
         str(tracker_path.resolve()) if tracker_path.is_file() else args.tracker_config
     )
+    reid_tracker_path = Path(args.reid_tracker_config).expanduser()
+    reid_tracker_config = (
+        str(reid_tracker_path.resolve())
+        if reid_tracker_path.is_file()
+        else args.reid_tracker_config
+    )
 
     from .adapters.ollama_vlm import OllamaVlm
 
@@ -1286,6 +1338,7 @@ def main() -> None:
             confidence=args.confidence,
             device=args.device,
             tracker_config=tracker_config,
+            reid_tracker_config=reid_tracker_config,
         ),
         vlm,
     )

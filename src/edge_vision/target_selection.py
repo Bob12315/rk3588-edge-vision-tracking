@@ -41,7 +41,7 @@ class SelectionResult:
 
 
 class PersistentTargetSelector:
-    """Keep one ByteTrack identity and only switch after a configurable absence."""
+    """Keep one tracker identity and only switch after a configurable absence."""
 
     def __init__(self, config: TargetSelectorConfig | None = None) -> None:
         self.config = config or TargetSelectorConfig()
@@ -72,7 +72,7 @@ class PersistentTargetSelector:
                     retained,
                     self.active_track_id,
                     "retained",
-                    "retained active ByteTrack identity",
+                    "retained active tracker identity",
                 )
 
             self.missed_frames += 1
@@ -88,7 +88,7 @@ class PersistentTargetSelector:
                     None,
                     self.active_track_id,
                     "lost",
-                    "locked ByteTrack identity is lost; automatic switching is disabled",
+                    "locked tracker identity is lost; automatic switching is disabled",
                 )
 
         tracked = [item for item in candidates if item.track_id is not None]

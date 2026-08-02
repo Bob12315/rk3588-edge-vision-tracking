@@ -1,5 +1,6 @@
 import io
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from edge_vision.contracts import GroundingTask, SceneObject, VlmSceneAnalysis
@@ -7,12 +8,14 @@ from edge_vision.web_ui import (
     WebUiConfig,
     _copy_limited,
     grounding_detection_prompts,
+    normalize_tracking_mode,
     performance_image_size,
     requested_clothing_color,
     requires_white_clothing_filter,
     safe_upload_filename,
     split_direct_prompts,
     timestamp_rate,
+    tracking_config_for_mode,
 )
 
 
@@ -106,6 +109,25 @@ class WebUiHelperTests(unittest.TestCase):
         self.assertEqual(performance_image_size("quality"), 640)
         with self.assertRaises(ValueError):
             performance_image_size("turbo")
+
+    def test_tracking_modes_resolve_to_explicit_configs(self) -> None:
+        config = WebUiConfig(
+            tracker_config="byte.yaml",
+            reid_tracker_config="reid.yaml",
+        )
+        self.assertEqual(normalize_tracking_mode("ByteTrack"), "bytetrack")
+        self.assertEqual(tracking_config_for_mode(config, "bytetrack"), "byte.yaml")
+        self.assertEqual(tracking_config_for_mode(config, "reid"), "reid.yaml")
+        with self.assertRaises(ValueError):
+            tracking_config_for_mode(config, "automatic")
+
+    def test_reid_profile_enables_botsort_appearance_matching(self) -> None:
+        profile = (
+            Path(__file__).resolve().parents[1] / "configs" / "botsort_reid.yaml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("tracker_type: botsort", profile)
+        self.assertIn("with_reid: true", profile)
+        self.assertIn("model: auto", profile)
 
     def test_timestamp_rate_reports_end_to_end_frequency(self) -> None:
         self.assertEqual(timestamp_rate([]), 0.0)

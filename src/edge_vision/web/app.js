@@ -20,6 +20,7 @@ const elements = {
   peopleCards: document.querySelector("#peopleCards"),
   targetInput: document.querySelector("#targetInput"),
   useVlmGrounding: document.querySelector("#useVlmGrounding"),
+  trackingMode: document.querySelector("#trackingMode"),
   performanceMode: document.querySelector("#performanceMode"),
   activePrompts: document.querySelector("#activePrompts"),
   startTracking: document.querySelector("#startTracking"),
@@ -173,6 +174,12 @@ function renderPrompts(tracking) {
     return;
   }
   for (const prompt of tracking.prompts) elements.activePrompts.append(makeChip(prompt));
+  if (tracking.tracking_mode) {
+    const trackerLabel = tracking.tracking_mode === "reid"
+      ? "BoT-SORT + ReID"
+      : "ByteTrack";
+    elements.activePrompts.append(makeChip(`tracker: ${trackerLabel}`));
+  }
   if (tracking.target_color) {
     elements.activePrompts.append(makeChip(`+ ${tracking.target_color} clothing verification`));
   }
@@ -411,9 +418,13 @@ elements.analyzeScene.addEventListener("click", async () => {
 });
 
 elements.scanPeople.addEventListener("click", async () => {
-  await withBusy("正在启动人物扫描", "加载 YOLO-World + ByteTrack，随后自动分析人物裁剪", async () => {
+  const trackerLabel = elements.trackingMode.value === "reid"
+    ? "BoT-SORT + ReID"
+    : "ByteTrack";
+  await withBusy("正在启动人物扫描", `加载 YOLO-World + ${trackerLabel}，随后自动分析人物裁剪`, async () => {
     const status = await api("/api/people/scan", jsonOptions({
       performance_mode: elements.performanceMode.value,
+      tracking_mode: elements.trackingMode.value,
     }));
     lastPeopleSignature = "";
     renderStatus(status);
@@ -424,14 +435,18 @@ elements.startTracking.addEventListener("click", async () => {
   const target = elements.targetInput.value.trim();
   if (!target) return showToast("请输入要识别和跟踪的目标");
   const useVlm = elements.useVlmGrounding.checked;
+  const trackerLabel = elements.trackingMode.value === "reid"
+    ? "BoT-SORT + ReID"
+    : "ByteTrack";
   const detail = useVlm
-    ? "VLM 先生成检测词，然后加载 YOLO-World 与 ByteTrack"
-    : "正在加载 YOLO-World 与 ByteTrack";
+    ? `VLM 先生成检测词，然后加载 YOLO-World 与 ${trackerLabel}`
+    : `正在加载 YOLO-World 与 ${trackerLabel}`;
   await withBusy("正在启动检测跟踪", detail, async () => {
     const status = await api("/api/tracking/start", jsonOptions({
       target,
       use_vlm_grounding: useVlm,
       performance_mode: elements.performanceMode.value,
+      tracking_mode: elements.trackingMode.value,
     }));
     renderStatus(status);
   }).catch(() => {});

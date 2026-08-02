@@ -5,7 +5,7 @@
 连接 USB 摄像头或上传视频后，点击“扫描并选择人物”：
 
 ```text
-YOLO-World(person) + ByteTrack 连续扫描 18 帧
+YOLO-World(person) + 用户选定跟踪器连续扫描 18 帧
                     ↓
 仅保留至少出现 3 帧的稳定 Track ID
                     ↓
@@ -17,11 +17,11 @@ Qwen3-VL 逐张输出受控 JSON 属性
                     ↓
 用户点击 TRACK THIS PERSON
                     ↓
-继续原 ByteTrack，只输出选中的 Track ID
+继续原跟踪会话，只输出选中的 Track ID
 ```
 
 扫描视频时不会回到第 0 帧重新建跟踪器：卡片生成后从第 19 帧继续，因此扫描
-Track ID 与后续跟踪 ID 属于同一个 ByteTrack 会话。分析期间画面暂停，避免 VLM
+Track ID 与后续跟踪 ID 属于同一个 ByteTrack 或 BoT-SORT 会话。分析期间画面暂停，避免 VLM
 耗时导致视频位置或跟踪状态悄悄前进。
 
 ## 受控属性
@@ -43,10 +43,11 @@ VLM 只能从固定英文枚举中选择，无法生成“dark reddish casual cl
 
 ## 安全边界
 
-- 人物框和 Track ID 始终来自 YOLO-World/ByteTrack，不由 VLM 生成。
+- 人物框和 Track ID 始终来自 YOLO-World 与所选跟踪器，不由 VLM 生成。
 - VLM 属性用于场景目录和人工选择，不被当作逐帧颜色真值。
 - 选择具体人物后，只锁定该 Track ID；目标丢失时不会自动切换到画面中另一个人。
-- 第一版没有 ReID。长时间遮挡、离开画面再进入后需要重新扫描。
+- 网页可选 BoT-SORT + ReID 身份增强；它只是辅助关联，不保证长时离画重入后仍为
+  原 ID。不确定时应重新扫描。详见[身份增强跟踪](IDENTITY_TRACKING.md)。
 - USB 摄像头在人物分析期间冻结读取；若人物已明显移动，建议重新扫描后再选择。
 - “检测所有同类属性的人”仍走现有 `person + 独立颜色复核` 链路，不把复合衣着句子
   当作 YOLO-World 的可靠最终判断。
